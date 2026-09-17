@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/flowjet-agent
+      url: https://pypi.org/p/flowjet
 
     steps:
       - name: Checkout
@@ -33,11 +33,11 @@ jobs:
 
       - name: Guard — soothe-nano must be on PyPI
         run: |
-          if ! curl -sf "https://pypi.org/pypi/soothe-nano/1.2.13/json" >/dev/null; then
-            echo "soothe-nano 1.2.13 must be available on PyPI before releasing flowjet-agent"
+          if ! curl -sf "https://pypi.org/pypi/soothe-nano/1.2.28/json" >/dev/null; then
+            echo "soothe-nano 1.2.28 must be available on PyPI before releasing flowjet"
             exit 1
           fi
-          echo "soothe-nano 1.2.13 is available on PyPI"
+          echo "soothe-nano 1.2.28 is available on PyPI"
 
       - name: Read version
         id: version
@@ -50,7 +50,7 @@ jobs:
         id: check
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          PKG="flowjet-agent"
+          PKG="flowjet"
           echo "Checking if ${PKG}==${VERSION} exists on PyPI..."
           if curl -sf "https://pypi.org/pypi/${PKG}/${VERSION}/json" >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
@@ -72,15 +72,22 @@ jobs:
         if: steps.check.outputs.exists == 'false'
         run: make test-unit
 
+      - name: Server tests (HTTP / ACP)
+        if: steps.check.outputs.exists == 'false'
+        run: make test-server
+
+      # ``make build`` wipes dist/ first. A bare ``uv build`` would leave stale
+      # flowjet_agent-1.1.11 artifacts in dist/ and publish them alongside 2.0.0.
       - name: Build package
         if: steps.check.outputs.exists == 'false'
-        run: uv build
+        run: make build
 
       - name: Verify dist
         if: steps.check.outputs.exists == 'false'
         run: |
           test -d dist
-          ls dist | grep -E 'flowjet_agent|flowjet-agent'
+          ls dist | grep -E '^flowjet-'
+          test "$(ls dist | wc -l)" -eq 2
           uv run twine check dist/*
 
       - name: Publish to PyPI
