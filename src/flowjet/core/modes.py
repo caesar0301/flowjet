@@ -91,19 +91,31 @@ def apply_profile(config: SootheConfig, profile: SurfaceProfile) -> SootheConfig
         default_core_skill_names,
         register_flowjet_builtin_skills,
     )
+    from flowjet.core.identity import FLOWJET_ASSISTANT_NAME, install_flowjet_identity
 
     if profile.register_builtin_skills:
         register_flowjet_builtin_skills()
 
+    install_flowjet_identity()
+
     updates: dict[str, Any] = {}
+    agent_updates: dict[str, Any] = {}
+
+    # FlowJet is the product; nano's "Soothe" default would otherwise be the
+    # assistant's name on both surfaces. An explicit ``agent.name`` wins.
+    if "name" not in config.agent.model_fields_set:
+        agent_updates["name"] = FLOWJET_ASSISTANT_NAME
 
     if profile.force_sqlite:
         durability = config.agent.protocols.durability.model_copy(
             update={"backend": "sqlite", "checkpointer": "sqlite"}
         )
         protocols = config.agent.protocols.model_copy(update={"durability": durability})
-        updates["agent"] = config.agent.model_copy(update={"protocols": protocols})
+        agent_updates["protocols"] = protocols
         updates["persistence"] = config.persistence.model_copy(update={"default_backend": "sqlite"})
+
+    if agent_updates:
+        updates["agent"] = config.agent.model_copy(update=agent_updates)
 
     updates["security"] = config.security.model_copy(
         update={"allow_paths_outside_workspace": profile.allow_paths_outside_workspace}

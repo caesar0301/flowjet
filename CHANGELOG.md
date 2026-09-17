@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The assistant identifies as FlowJet, not Soothe.** soothe-nano prepends its
+  own `<ASSISTANT_IDENTITY>` block — "a helpful AI assistant" named `Soothe` —
+  to every system prompt tier, and only parameterises it by `agent.name`.
+  `flowjet.core.identity` now installs a FlowJet template (coding agent, creator
+  line, and an explicit "never identify as Soothe / soothe-nano / Claude /
+  ChatGPT / Gemini / Anthropic / OpenAI / Google" rule) and `apply_profile`
+  defaults `agent.name` to `FlowJet` on both the CLI and server surfaces. An
+  explicit `agent.name` or `agent.system_prompt` in `nano.yml` still wins.
 - **Workspace resolution is caller-driven by default.**
   `FLOWJET_ALLOW_EXTERNAL_WORKSPACE` now defaults to `true`, so a workspace
   outside `FLOWJET_HOME` is honoured rather than rejected. This is not a
