@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from fj_ai.cli import main_follow, parse_args, split_argv
+from flowjet.cli.cli import main_follow, parse_args, split_argv
 
 
 @pytest.mark.parametrize(
@@ -123,7 +123,7 @@ def test_split_argv_ask_cluster() -> None:
 def test_validate_arg_composition_ask_with_list_rejected() -> None:
     from argparse import Namespace
 
-    from fj_ai.cli import validate_arg_composition
+    from flowjet.cli.cli import validate_arg_composition
 
     ns = Namespace(
         list=True,
@@ -144,7 +144,7 @@ def test_validate_arg_composition_ask_with_list_rejected() -> None:
 def test_validate_arg_composition_bypass_with_list_rejected() -> None:
     from argparse import Namespace
 
-    from fj_ai.cli import validate_arg_composition
+    from flowjet.cli.cli import validate_arg_composition
 
     ns = Namespace(
         list=True,
@@ -163,9 +163,9 @@ def test_validate_arg_composition_bypass_with_list_rejected() -> None:
 
 
 def test_resolve_cli_prog_known_entrypoints() -> None:
-    from fj_ai.cli import FORMAL_CLI, resolve_cli_prog
+    from flowjet.cli.cli import FORMAL_CLI, resolve_cli_prog
 
-    assert resolve_cli_prog("/usr/local/bin/flowjet-agent") == "flowjet-agent"
+    assert resolve_cli_prog("/usr/local/bin/flowjet") == "flowjet"
     assert resolve_cli_prog("/usr/local/bin/fj") == "fj"
     assert resolve_cli_prog("fjf") == "fjf"
     assert resolve_cli_prog("fj.exe") == "fj"
@@ -174,16 +174,16 @@ def test_resolve_cli_prog_known_entrypoints() -> None:
 
 
 def test_help_mentions_formal_cli_and_aliases() -> None:
-    from fj_ai.cli import cli_help_text
+    from flowjet.cli.cli import cli_help_text
 
-    help_text = cli_help_text("flowjet-agent")
-    assert "flowjet-agent" in help_text
+    help_text = cli_help_text("flowjet")
+    assert "flowjet" in help_text
     assert "Aliases: fj" in help_text
     assert "fjf" in help_text
 
 
 def test_main_follow_injects_follow_flag(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    from fj_ai import cli
+    from flowjet.cli import cli
 
     seen: list[list[str] | None] = []
 
@@ -197,7 +197,7 @@ def test_main_follow_injects_follow_flag(monkeypatch) -> None:  # type: ignore[n
 
 
 def test_main_follow_skips_subcommands(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    from fj_ai import cli
+    from flowjet.cli import cli
 
     seen: list[list[str] | None] = []
 
@@ -213,7 +213,7 @@ def test_main_follow_skips_subcommands(monkeypatch) -> None:  # type: ignore[no-
 
 
 def test_main_follow_idempotent_when_follow_present(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    from fj_ai import cli
+    from flowjet.cli import cli
 
     seen: list[list[str] | None] = []
 
@@ -231,11 +231,11 @@ async def test_run_async_list_threads(monkeypatch, capsys) -> None:  # type: ign
     from contextlib import asynccontextmanager
     from types import SimpleNamespace
 
-    import fj_ai.agent as agent_mod
-    import fj_ai.agent as config_mod
-    import fj_ai.threads as threads_mod
-    from fj_ai.cli import parse_args, run_async
-    from fj_ai.threads import ThreadInfo
+    import flowjet.cli.agent as agent_mod
+    import flowjet.cli.agent as config_mod
+    import flowjet.cli.threads as threads_mod
+    from flowjet.cli.cli import parse_args, run_async
+    from flowjet.cli.threads import ThreadInfo
 
     seen: dict[str, int] = {}
 
@@ -269,8 +269,8 @@ async def test_run_async_list_threads(monkeypatch, capsys) -> None:  # type: ign
 async def test_run_async_list_invalid_limit(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
     from types import SimpleNamespace
 
-    import fj_ai.agent as config_mod
-    from fj_ai.cli import parse_args, run_async
+    import flowjet.cli.agent as config_mod
+    from flowjet.cli.cli import parse_args, run_async
 
     monkeypatch.setattr(config_mod, "load_config", lambda _p=None: SimpleNamespace())
     assert await run_async(parse_args(["-l", "-n", "-1"])) == 2
@@ -282,10 +282,10 @@ async def test_run_async_list_zero_means_all(monkeypatch) -> None:  # type: igno
     from contextlib import asynccontextmanager
     from types import SimpleNamespace
 
-    import fj_ai.agent as agent_mod
-    import fj_ai.agent as config_mod
-    import fj_ai.threads as threads_mod
-    from fj_ai.cli import parse_args, run_async
+    import flowjet.cli.agent as agent_mod
+    import flowjet.cli.agent as config_mod
+    import flowjet.cli.threads as threads_mod
+    from flowjet.cli.cli import parse_args, run_async
 
     seen: dict[str, int] = {}
 
@@ -308,7 +308,7 @@ async def test_run_async_list_zero_means_all(monkeypatch) -> None:  # type: igno
 
 @pytest.mark.asyncio
 async def test_arg_composition_conflicts(capsys) -> None:  # type: ignore[no-untyped-def]
-    from fj_ai.cli import parse_args, run_async
+    from flowjet.cli.cli import parse_args, run_async
 
     cases = [
         (["-n", "5"], "-n requires -l/--list"),
@@ -327,8 +327,8 @@ async def test_arg_composition_conflicts(capsys) -> None:  # type: ignore[no-unt
 def test_run_pin_thread(monkeypatch, capsys, tmp_path) -> None:  # type: ignore[no-untyped-def]
     import asyncio
 
-    import fj_ai.threads as threads_mod
-    from fj_ai.cli import parse_args, run_async, run_pin_thread
+    import flowjet.cli.threads as threads_mod
+    from flowjet.cli.cli import parse_args, run_async, run_pin_thread
 
     path = tmp_path / "fj_active_thread"
     monkeypatch.setattr(threads_mod, "active_thread_path", lambda *_a, **_k: path)
@@ -354,11 +354,11 @@ async def test_run_async_default_starts_new_thread(monkeypatch) -> None:  # type
     from contextlib import asynccontextmanager
     from types import SimpleNamespace
 
-    import fj_ai.agent as agent_mod
-    import fj_ai.agent as config_mod
-    import fj_ai.stream as stream_mod
-    import fj_ai.threads as threads_mod
-    from fj_ai.cli import parse_args, run_async
+    import flowjet.cli.agent as agent_mod
+    import flowjet.cli.agent as config_mod
+    import flowjet.cli.stream as stream_mod
+    import flowjet.cli.threads as threads_mod
+    from flowjet.cli.cli import parse_args, run_async
 
     seen: dict[str, object] = {}
 
@@ -404,11 +404,11 @@ async def test_run_async_follow_uses_latest_thread(monkeypatch) -> None:  # type
     from contextlib import asynccontextmanager
     from types import SimpleNamespace
 
-    import fj_ai.agent as agent_mod
-    import fj_ai.agent as config_mod
-    import fj_ai.stream as stream_mod
-    import fj_ai.threads as threads_mod
-    from fj_ai.cli import parse_args, run_async
+    import flowjet.cli.agent as agent_mod
+    import flowjet.cli.agent as config_mod
+    import flowjet.cli.stream as stream_mod
+    import flowjet.cli.threads as threads_mod
+    from flowjet.cli.cli import parse_args, run_async
 
     seen: dict[str, object] = {}
 
@@ -449,11 +449,11 @@ async def test_run_async_thread_overrides_follow(monkeypatch) -> None:  # type: 
     from contextlib import asynccontextmanager
     from types import SimpleNamespace
 
-    import fj_ai.agent as agent_mod
-    import fj_ai.agent as config_mod
-    import fj_ai.stream as stream_mod
-    import fj_ai.threads as threads_mod
-    from fj_ai.cli import parse_args, run_async
+    import flowjet.cli.agent as agent_mod
+    import flowjet.cli.agent as config_mod
+    import flowjet.cli.stream as stream_mod
+    import flowjet.cli.threads as threads_mod
+    from flowjet.cli.cli import parse_args, run_async
 
     seen: dict[str, object] = {}
 
@@ -504,8 +504,8 @@ def test_parse_args_setup_command() -> None:
 
 
 def test_main_setup_skips_asyncio(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    import fj_ai.setup_cmd as setup_cmd
-    from fj_ai import cli
+    import flowjet.cli.setup_cmd as setup_cmd
+    from flowjet.cli import cli
 
     called: list[str] = []
 
@@ -521,7 +521,7 @@ def test_main_setup_skips_asyncio(monkeypatch) -> None:  # type: ignore[no-untyp
 
 
 def test_main_keyboard_interrupt_is_clean(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
-    from fj_ai import cli
+    from flowjet.cli import cli
 
     def raise_ki(_argv: list[str] | None = None) -> object:
         raise KeyboardInterrupt
@@ -534,7 +534,7 @@ def test_main_keyboard_interrupt_is_clean(monkeypatch, capsys) -> None:  # type:
 
 @pytest.mark.asyncio
 async def test_run_async_empty_query_prints_usage(capsys) -> None:  # type: ignore[no-untyped-def]
-    from fj_ai.cli import parse_args, run_async
+    from flowjet.cli.cli import parse_args, run_async
 
     assert await run_async(parse_args(["-v"])) == 2
     assert "FlowJet — coding agent CLI" in capsys.readouterr().err
@@ -542,8 +542,8 @@ async def test_run_async_empty_query_prints_usage(capsys) -> None:  # type: igno
 
 @pytest.mark.asyncio
 async def test_run_async_missing_config(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
-    import fj_ai.agent as config_mod
-    from fj_ai.cli import parse_args, run_async
+    import flowjet.cli.agent as config_mod
+    from flowjet.cli.cli import parse_args, run_async
 
     def missing(_path: object = None) -> object:
         raise FileNotFoundError("no config")
@@ -556,8 +556,8 @@ async def test_run_async_missing_config(monkeypatch, capsys) -> None:  # type: i
 
 @pytest.mark.asyncio
 async def test_run_async_config_load_failure(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
-    import fj_ai.agent as config_mod
-    from fj_ai.cli import parse_args, run_async
+    import flowjet.cli.agent as config_mod
+    from flowjet.cli.cli import parse_args, run_async
 
     monkeypatch.setattr(
         config_mod, "load_config", lambda _p=None: (_ for _ in ()).throw(ValueError("bad yaml"))
@@ -571,11 +571,11 @@ async def test_run_async_query_success_and_history(monkeypatch) -> None:  # type
     from contextlib import asynccontextmanager
     from types import SimpleNamespace
 
-    import fj_ai.agent as agent_mod
-    import fj_ai.agent as config_mod
-    import fj_ai.completion.context as history_mod
-    import fj_ai.stream as stream_mod
-    from fj_ai.cli import parse_args, run_async
+    import flowjet.cli.agent as agent_mod
+    import flowjet.cli.agent as config_mod
+    import flowjet.cli.completion.context as history_mod
+    import flowjet.cli.stream as stream_mod
+    from flowjet.cli.cli import parse_args, run_async
 
     calls: list[str] = []
 
@@ -599,7 +599,7 @@ async def test_run_async_query_success_and_history(monkeypatch) -> None:  # type
     async def fake_resolve(*_a: object, **_k: object) -> str:
         return "fj-test"
 
-    import fj_ai.threads as threads_mod
+    import flowjet.cli.threads as threads_mod
 
     monkeypatch.setattr(threads_mod, "resolve_thread_id", fake_resolve)
 
@@ -612,10 +612,10 @@ async def test_run_async_no_stream_and_error(monkeypatch, capsys) -> None:  # ty
     from contextlib import asynccontextmanager
     from types import SimpleNamespace
 
-    import fj_ai.agent as agent_mod
-    import fj_ai.agent as config_mod
-    import fj_ai.stream as stream_mod
-    from fj_ai.cli import parse_args, run_async
+    import flowjet.cli.agent as agent_mod
+    import flowjet.cli.agent as config_mod
+    import flowjet.cli.stream as stream_mod
+    from flowjet.cli.cli import parse_args, run_async
 
     @asynccontextmanager
     async def fake_cp(_config: object):
@@ -633,7 +633,7 @@ async def test_run_async_no_stream_and_error(monkeypatch, capsys) -> None:  # ty
     async def fake_resolve(*_a: object, **_k: object) -> str:
         return "fj-test"
 
-    import fj_ai.threads as threads_mod
+    import flowjet.cli.threads as threads_mod
 
     monkeypatch.setattr(agent_mod, "build_agent", fake_build)
     monkeypatch.setattr(threads_mod, "resolve_thread_id", fake_resolve)
@@ -649,10 +649,10 @@ async def test_run_async_keyboard_interrupt(monkeypatch, capsys) -> None:  # typ
     from contextlib import asynccontextmanager
     from types import SimpleNamespace
 
-    import fj_ai.agent as agent_mod
-    import fj_ai.agent as config_mod
-    import fj_ai.stream as stream_mod
-    from fj_ai.cli import parse_args, run_async
+    import flowjet.cli.agent as agent_mod
+    import flowjet.cli.agent as config_mod
+    import flowjet.cli.stream as stream_mod
+    from flowjet.cli.cli import parse_args, run_async
 
     @asynccontextmanager
     async def fake_cp(_config: object):
@@ -670,7 +670,7 @@ async def test_run_async_keyboard_interrupt(monkeypatch, capsys) -> None:  # typ
     async def fake_resolve(*_a: object, **_k: object) -> str:
         return "fj-test"
 
-    import fj_ai.threads as threads_mod
+    import flowjet.cli.threads as threads_mod
 
     monkeypatch.setattr(agent_mod, "build_agent", fake_build)
     monkeypatch.setattr(threads_mod, "resolve_thread_id", fake_resolve)
@@ -681,7 +681,7 @@ async def test_run_async_keyboard_interrupt(monkeypatch, capsys) -> None:  # typ
 
 
 def test_main_verbose_reconfigures_logging(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    from fj_ai import cli
+    from flowjet.cli import cli
 
     seen: list[bool] = []
 

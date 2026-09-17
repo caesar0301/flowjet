@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from fj_ai.tool_stream import (
+from flowjet.cli.tool_stream import (
     ToolCallArgAccumulator,
     _as_chunk_dict,
     _merge_args,

@@ -1,7 +1,19 @@
-"""Shared fixtures for fj CLI integration tests."""
+"""Shared fixtures for FlowJet integration tests.
+
+CLI fixtures (``soothe_home``, ``run_fj``, ``live_stream_runtime``) exercise
+``flowjet.cli``; HTTP/ACP fixtures (``live_server``, ``openai_client``,
+``authed_live_server``) spin up a real uvicorn process so the official
+``openai`` client exercises the same HTTP/SSE path production SDKs use.
+
+Server imports are function-local so the CLI half of this suite runs without
+the ``[server]`` extra installed.
+"""
 
 from __future__ import annotations
 
+import socket
+import threading
+import time
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -27,7 +39,7 @@ def soothe_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 @pytest.fixture
 def active_thread_file(soothe_home: Path) -> Path:
     """Pointer file for the workdir the tests run in (pins are per-project)."""
-    from fj_ai.threads import active_thread_path
+    from flowjet.cli.threads import active_thread_path
 
     return active_thread_path()
 
@@ -38,10 +50,10 @@ def stub_agent_runtime(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 
     Records resolve/stream/invoke/list calls for assertions.
     """
-    import fj_ai.agent as agent_mod
-    import fj_ai.agent as config_mod
-    import fj_ai.stream as stream_mod
-    import fj_ai.threads as threads_mod
+    import flowjet.cli.agent as agent_mod
+    import flowjet.cli.agent as config_mod
+    import flowjet.cli.stream as stream_mod
+    import flowjet.cli.threads as threads_mod
 
     seen: dict[str, Any] = {
         "resolve": None,
@@ -70,7 +82,7 @@ def stub_agent_runtime(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         return "fj-new-stub"
 
     async def fake_list(_cp: object, *, limit: int = 20) -> list[object]:
-        from fj_ai.threads import ThreadInfo
+        from flowjet.cli.threads import ThreadInfo
 
         seen["list_limit"] = limit
         return [
@@ -117,8 +129,8 @@ def run_fj(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> Iterator[Any]:
-    """Call ``fj_ai.cli.main(argv)`` and return ``(code, stdout, stderr)``."""
-    from fj_ai import cli
+    """Call ``flowjet.cli.cli.main(argv)`` and return ``(code, stdout, stderr)``."""
+    from flowjet.cli import cli
 
     # Quiet logging setup noise across compositions.
     monkeypatch.setattr(cli, "configure_cli_logging", lambda **_k: None)
@@ -149,11 +161,11 @@ def live_stream_runtime(
     """Stub agent wiring but run real ``stream_query`` (progress + answer path)."""
     import sys
 
-    import fj_ai.agent as agent_mod
-    import fj_ai.agent as config_mod
-    import fj_ai.completion.context as history_mod
-    import fj_ai.threads as threads_mod
-    from fj_ai.progress import ProgressLine
+    import flowjet.cli.agent as agent_mod
+    import flowjet.cli.agent as config_mod
+    import flowjet.cli.completion.context as history_mod
+    import flowjet.cli.threads as threads_mod
+    from flowjet.cli.progress import ProgressLine
 
     # ProgressLine only paints on TTY; capsys stdout is non-interactive.
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True, raising=False)
@@ -208,8 +220,8 @@ def run_fjf(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> Iterator[Any]:
-    """Call ``fj_ai.cli.main_follow(argv)`` and return ``(code, stdout, stderr)``."""
-    from fj_ai import cli
+    """Call ``flowjet.cli.cli.main_follow(argv)`` and return ``(code, stdout, stderr)``."""
+    from flowjet.cli import cli
 
     monkeypatch.setattr(cli, "configure_cli_logging", lambda **_k: None)
 
@@ -228,3 +240,105 @@ def run_fjf(
         return code, captured.out, captured.err
 
     yield _run
+
+
+# ---------------------------------------------------------------------------
+# HTTP / ACP server fixtures
+# ---------------------------------------------------------------------------
+
+
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+class LiveServer:
+    """Real uvicorn process on a free port, backed by FakeRuntimeBackend."""
+
+    def __init__(self, app: object, host: str = "127.0.0.1") -> None:
+        import uvicorn
+
+        self.host = host
+        self.port = _free_port()
+        self.config = uvicorn.Config(
+            app,
+            host=self.host,
+            port=self.port,
+            log_level="error",
+            access_log=False,
+        )
+        self.server = uvicorn.Server(self.config)
+        self._thread = threading.Thread(target=self.server.run, name="uvicorn-test", daemon=True)
+
+    @property
+    def base_url(self) -> str:
+        return f"http://{self.host}:{self.port}/v1"
+
+    @property
+    def root_url(self) -> str:
+        return f"http://{self.host}:{self.port}"
+
+    def start(self, timeout: float = 10.0) -> None:
+        import httpx
+
+        self._thread.start()
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self.server.started:
+                try:
+                    r = httpx.get(f"{self.root_url}/health", timeout=0.5)
+                    if r.status_code == 200:
+                        return
+                except httpx.HTTPError:
+                    pass
+            time.sleep(0.05)
+        raise RuntimeError("uvicorn test server failed to start")
+
+    def stop(self) -> None:
+        self.server.should_exit = True
+        self._thread.join(timeout=5)
+
+
+@pytest.fixture
+def live_server() -> Iterator[LiveServer]:
+    from flowjet.core.backends.fake import FakeRuntimeBackend
+    from flowjet.server.config import Settings
+    from flowjet.server.http.app import create_app
+
+    app = create_app(
+        settings=Settings(api_key=None, models="default,researcher"),
+        backend=FakeRuntimeBackend(models=["default", "researcher"]),
+    )
+    server = LiveServer(app)
+    server.start()
+    try:
+        yield server
+    finally:
+        server.stop()
+
+
+@pytest.fixture
+def openai_client(live_server: LiveServer) -> Any:
+    from openai import OpenAI
+
+    return OpenAI(api_key="local-test-key", base_url=live_server.base_url)
+
+
+@pytest.fixture
+def authed_live_server() -> Iterator[tuple[LiveServer, str]]:
+    from flowjet.core.backends.fake import FakeRuntimeBackend
+    from flowjet.server.config import Settings
+    from flowjet.server.http.app import create_app
+
+    api_key = "test-secret-key"
+    app = create_app(
+        settings=Settings(api_key=api_key, models="default"),
+        backend=FakeRuntimeBackend(models=["default"]),
+    )
+    server = LiveServer(app)
+    server.start()
+    try:
+        yield server, api_key
+    finally:
+        server.stop()

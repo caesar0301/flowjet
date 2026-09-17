@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 
-from fj_ai.cli import run_one_shot
+from flowjet.cli.cli import run_one_shot
 
 
 async def _uncancellable_poller() -> None:

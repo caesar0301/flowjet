@@ -1,0 +1,63 @@
+# Default nano profile for flowjet-server images.
+# Sourced from soothe config/develop/nano.yml (dashscope provider only).
+
+providers:
+  - name: dashscope
+    provider_type: openai
+    api_base_url: "${DASHSCOPE_BASE_URL}"
+    api_key: "${DASHSCOPE_API_KEY}"
+    models:
+      - glm-5.2
+      - qwen3.7-plus
+      - kimi-k2.5
+      - kimi-k2.7-code
+      - MiniMax-M3
+      - text-embedding-v4
+
+router_profiles:
+  - name: production
+    router:
+      default: "dashscope:glm-5.2"
+      fast: "dashscope:qwen3.6-flash"
+      think: "dashscope:glm-5.2"
+      image: "dashscope:qwen3.7-plus"
+      ocr: "dashscope:qwen3.7-plus"
+
+active_router_profile: production
+
+embedding_profile:
+  - model_role: dashscope:text-embedding-v4
+    embedding_dims: 1536
+
+# Development default: SQLite persistence (nano built-in mode for the whole
+# runtime). The image bakes this so `make run` works without a Postgres sidecar.
+# Production overrides via deploy/nano.yml (PostgreSQL + pgvector mount).
+# Do not mix backends in one process.
+persistence:
+  default_backend: sqlite
+  # Unused while default_backend is sqlite; kept for a quick Postgres flip:
+  postgres_base_dsn: "postgresql://postgres:postgres@127.0.0.1:5432"
+  postgres_databases:
+    checkpoints: soothe_checkpoints
+    metadata: soothe_metadata
+    vectors: flowjet_vectors
+    memory: soothe_memory
+  postgres:
+    pool_max_idle_seconds: 90
+    pool_max_lifetime_seconds: 900
+
+observability:
+  log_file_level: DEBUG
+
+vector_stores:
+  - name: sqlite_vec_dev
+    provider_type: sqlite_vec
+
+vector_store_router:
+  default: sqlite_vec_dev:soothe_default
+
+tools:
+  wizsearch:
+    default_engines:
+      - duckduckgo
+      - tavily

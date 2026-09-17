@@ -3,17 +3,18 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "flowjet-agent"
-version = "1.1.12"
-description = "FlowJet (fj) — one-shot CLI coding agent powered by soothe-nano"
+name = "flowjet"
+version = "2.0.0"
+description = "FlowJet — agent CLI (fj) and server (ACP + OpenAI-compatible HTTP) powered by soothe-nano"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11,<3.15"
 authors = [{ name = "Xiaming Chen" }]
-keywords = ["flowjet", "flowjet-agent", "fj", "cli", "agent", "soothe", "nano", "ai", "coding-agent"]
+keywords = ["flowjet", "fj", "cli", "server", "acp", "openai", "agent", "soothe", "nano", "ai", "coding-agent"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
+    "Environment :: Web Environment",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
@@ -24,11 +25,22 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
+# The CLI stays a single-dependency wheel. Everything the HTTP service needs
+# lives in the `server` extra, and `flowjet.cli` never imports it at module
+# scope (see tests/unit/test_cli_no_server_deps.py).
 dependencies = [
     "soothe-nano>=1.2.28,<1.3.0",
 ]
 
 [project.optional-dependencies]
+server = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "agent-client-protocol[http]>=0.12.1,<1.0.0",
+    "langchain-core>=0.3",
+]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=1.3.0",
@@ -36,11 +48,13 @@ dev = [
     "ruff>=0.12.0",
     "mypy>=1.0.0",
     "twine>=5.0.0",
+    "httpx>=0.27.0",
+    "openai>=2.51.0",
 ]
 
 [dependency-groups]
 dev = [
-    "flowjet-agent[dev]",
+    "flowjet[dev,server]",
 ]
 
 [tool.uv]
@@ -54,9 +68,10 @@ constraint-dependencies = [
 # soothe-nano is published on PyPI (>=0.9.9); resolve it from the default index.
 
 [project.scripts]
-flowjet-agent = "fj_ai.cli:main"
-fj = "fj_ai.cli:main"
-fjf = "fj_ai.cli:main_follow"
+flowjet = "flowjet.cli.cli:main"
+fj = "flowjet.cli.cli:main"
+fjf = "flowjet.cli.cli:main_follow"
+flowjet-server = "flowjet.server.__main__:main"
 
 [project.urls]
 Homepage = "https://github.com/caesar0301/flowjet-agent"
@@ -64,13 +79,13 @@ Repository = "https://github.com/caesar0301/flowjet-agent"
 Issues = "https://github.com/caesar0301/flowjet-agent/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/fj_ai"]
+packages = ["src/flowjet"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/fj_ai/", "nano.yml", "README.md", "LICENSE", "docs/completion-design.md", "docs/naming.md"]
+include = ["src/flowjet/", "nano.yml", "README.md", "LICENSE", "docs/", "CHANGELOG.md"]
 
 # Non-Python assets (shell completions, builtin_skills/) are shipped automatically
-# because they live inside the `src/fj_ai` package, which hatchling includes
+# because they live inside the `src/flowjet` package, which hatchling includes
 # recursively. Do NOT re-list them in force-include — that adds the same file
 # twice and breaks `uv build` with "A second file is being added ... at the
 # same path".
@@ -79,7 +94,7 @@ include = ["src/fj_ai/", "nano.yml", "README.md", "LICENSE", "docs/completion-de
 line-length = 100
 target-version = "py311"
 # AgentSkills scripts are third-party / skill-local style; keep them out of package lint.
-extend-exclude = ["src/fj_ai/builtin_skills"]
+extend-exclude = ["src/flowjet/builtin_skills"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
@@ -94,6 +109,13 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
 
+# The moved server/bridge code is Any-heavy (nano and langchain objects); it is
+# checked loosely until it is annotated. CI has no mypy gate today.
+[[tool.mypy.overrides]]
+module = ["flowjet.server.*", "flowjet.core.bridges.*"]
+disallow_untyped_defs = false
+warn_return_any = false
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
@@ -105,4 +127,5 @@ addopts = "-v --strict-markers"
 markers = [
     "asyncio: mark test as async",
     "integration: mark test as integration test",
+    "server: mark test as covering the HTTP/ACP surface",
 ]

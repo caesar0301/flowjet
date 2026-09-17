@@ -69,13 +69,13 @@ def test_main_help_and_version_exit_cleanly(run_fj: Any) -> None:
     code, out, err = run_fj(["-h"])
     assert code == 0
     help_l = out.lower()
-    assert "usage: fj" in help_l or "usage: flowjet-agent" in help_l
+    assert "usage: fj" in help_l or "usage: flowjet" in help_l
     # Full composition docs live in the epilog.
     assert "-l/--list" in out or "-l" in out
 
     code, out, err = run_fj(["--version"])
     assert code == 0
-    assert "fj " in out or "flowjet-agent " in out
+    assert "fj " in out or "flowjet " in out
     assert err == ""
 
 
@@ -118,7 +118,7 @@ def test_main_thread_pin_is_scoped_per_workdir(
     tmp_path: Path,
 ) -> None:
     """Two projects keep independent pins, so parallel work never collides."""
-    from fj_ai.threads import active_thread_path
+    from flowjet.cli.threads import active_thread_path
 
     repo_a = tmp_path / "repo-a"
     repo_b = tmp_path / "repo-b"
@@ -299,7 +299,7 @@ def test_main_setup_does_not_enter_query_path(
     stub_agent_runtime: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import fj_ai.setup_cmd as setup_cmd
+    import flowjet.cli.setup_cmd as setup_cmd
 
     called: list[str | None] = []
     monkeypatch.setattr(setup_cmd, "run_setup", lambda path=None: called.append(path) or 0)
@@ -318,7 +318,7 @@ def test_main_doctor_does_not_enter_query_path(
     stub_agent_runtime: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import fj_ai.doctor_cmd as doctor_cmd
+    import flowjet.cli.doctor_cmd as doctor_cmd
 
     called: list[list[str]] = []
     monkeypatch.setattr(
@@ -376,7 +376,7 @@ def test_main_concurrent_query_same_thread_refused(
     run_fj: Any,
     stub_agent_runtime: dict[str, Any],
 ) -> None:
-    from fj_ai.threads import hold_thread_lock
+    from flowjet.cli.threads import hold_thread_lock
 
     with hold_thread_lock("fj-new-stub"):
         code, _out, err = run_fj(["hello"])
@@ -389,7 +389,7 @@ def test_main_concurrent_query_different_threads_allowed(
     run_fj: Any,
     stub_agent_runtime: dict[str, Any],
 ) -> None:
-    from fj_ai.threads import hold_thread_lock
+    from flowjet.cli.threads import hold_thread_lock
 
     with hold_thread_lock("fj-other"):
         code, _out, err = run_fj(["hello"])

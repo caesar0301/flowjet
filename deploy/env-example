@@ -1,0 +1,11 @@
+# FlowJet Server Deployment Environment Variables
+# Copy this file to .env and configure before deployment.
+DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
+
+# Optional: require Bearer auth on /v1 endpoints (leave blank for no auth)
+FLOWJET_API_KEY=
+
+# Optional: override published port / bind IP (defaults: 8618 / 127.0.0.1)
+# FLOWJET_PORT_PUBLISHED=8618
+# FLOWJET_BIND_IP=127.0.0.1

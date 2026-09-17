@@ -6,7 +6,7 @@ from soothe_nano.config import SootheConfig
 from soothe_nano.skills.builtins import is_builtin_skill_directory, iter_skill_roots
 from soothe_nano.skills.index import SkillIndex
 
-from fj_ai.agent import BUILTIN_SKILLS_DIR, apply_fj_defaults, register_fj_builtin_skills
+from flowjet.cli.agent import BUILTIN_SKILLS_DIR, apply_fj_defaults, register_fj_builtin_skills
 
 
 def test_builtin_skills_dir_has_skill_md() -> None:

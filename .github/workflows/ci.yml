@@ -45,6 +45,9 @@ jobs:
       - name: Integration tests
         run: make test-integration
 
+      - name: Server tests (HTTP / ACP)
+        run: make test-server
+
       - name: Coverage
         if: matrix.python-version == '3.12'
         run: make test-coverage

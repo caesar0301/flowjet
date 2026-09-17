@@ -8,7 +8,7 @@ from io import StringIO
 
 import pytest
 
-from fj_ai.agent import configure_cli_logging
+from flowjet.cli.agent import configure_cli_logging
 
 
 def test_configure_cli_logging_opts_out_of_browser_use_setup(
@@ -77,11 +77,11 @@ def test_configure_cli_logging_verbose_one_line(
 
 
 def test_silence_after_plugins_reapplies(monkeypatch: pytest.MonkeyPatch) -> None:
-    from fj_ai.agent import silence_after_plugins
+    from flowjet.cli.agent import silence_after_plugins
 
     calls: list[bool] = []
     monkeypatch.setattr(
-        "fj_ai.agent.configure_cli_logging",
+        "flowjet.cli.agent.configure_cli_logging",
         lambda *, verbose=False: calls.append(verbose),
     )
     silence_after_plugins(verbose=True)
@@ -89,7 +89,7 @@ def test_silence_after_plugins_reapplies(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_compact_formatter_drops_traceback() -> None:
-    from fj_ai.agent import _CompactConsoleFormatter
+    from flowjet.cli.agent import _CompactConsoleFormatter
 
     formatter = _CompactConsoleFormatter("%(message)s")
     record = logging.LogRecord(
@@ -114,7 +114,7 @@ def test_compact_formatter_drops_traceback() -> None:
 def test_remove_root_console_preserves_file_handler(tmp_path) -> None:  # type: ignore[no-untyped-def]
     from logging.handlers import RotatingFileHandler
 
-    from fj_ai.agent import configure_cli_logging
+    from flowjet.cli.agent import configure_cli_logging
 
     root = logging.getLogger()
     path = tmp_path / "app.log"

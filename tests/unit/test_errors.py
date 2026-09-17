@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from io import StringIO
 
-from fj_ai.stream import (
+from flowjet.cli.stream import (
     format_cli_error,
-    simplify_tool_error,
-    tool_result_error_detail,
     write_cli_error,
 )
+from flowjet.core.tool_results import simplify_tool_error, tool_result_error_detail
 
 
 def test_tool_result_error_detail_from_string() -> None:

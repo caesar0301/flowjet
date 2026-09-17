@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from fj_ai import doctor_fix_cmd as dfc
-from fj_ai.cli import parse_args
+from flowjet.cli import doctor_fix_cmd as dfc
+from flowjet.cli.cli import parse_args
 
 
 def test_parse_args_doctor_fix_command() -> None:

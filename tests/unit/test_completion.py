@@ -7,9 +7,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from fj_ai import cli
-from fj_ai.completion.context import append_history, build_context, read_history
-from fj_ai.completion.engine import (
+from flowjet.cli import cli
+from flowjet.cli.completion.context import append_history, build_context, read_history
+from flowjet.cli.completion.engine import (
     Candidate,
     complete,
     merge_candidates,
@@ -82,7 +82,7 @@ def test_complete_task_builtins_without_llm(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
-        "fj_ai.completion.context.read_history",
+        "flowjet.cli.completion.context.read_history",
         lambda limit=40: [],
     )
     got = complete([], use_llm=False)
@@ -95,13 +95,13 @@ def test_complete_does_not_import_agent(monkeypatch: pytest.MonkeyPatch, tmp_pat
     import sys
 
     # Ensure agent module is not required on the completion path.
-    sys.modules.pop("fj_ai.agent", None)
+    sys.modules.pop("flowjet.cli.agent", None)
 
     real_import = __import__
 
     def blocked(name: str, *args: object, **kwargs: object) -> object:
-        if name == "fj_ai.agent" or name.startswith("fj_ai.agent."):
-            raise AssertionError("completion must not import fj_ai.agent")
+        if name == "flowjet.cli.agent" or name.startswith("flowjet.cli.agent."):
+            raise AssertionError("completion must not import flowjet.cli.agent")
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr("builtins.__import__", blocked)
@@ -127,8 +127,8 @@ def test_main_complete_no_agent(
         raise AssertionError("completion must not build an agent")
 
     # Agent is imported lazily inside run_async; patch the module if loaded.
-    import fj_ai.agent as agent_mod
-    import fj_ai.completion.context as history_mod
+    import flowjet.cli.agent as agent_mod
+    import flowjet.cli.completion.context as history_mod
 
     monkeypatch.setattr(agent_mod, "build_agent", boom_agent)
     monkeypatch.setattr(agent_mod, "open_sqlite_checkpointer", boom_agent)
@@ -140,7 +140,7 @@ def test_main_complete_no_agent(
 
 
 def test_completion_script_zsh() -> None:
-    from fj_ai.completion.engine import run_completion_script
+    from flowjet.cli.completion.engine import run_completion_script
 
     code = run_completion_script(["zsh"])
     assert code == 0
@@ -150,8 +150,8 @@ def test_llm_candidates_uses_fast_role() -> None:
     import asyncio
     from pathlib import Path
 
-    from fj_ai.completion import engine as llm_mod
-    from fj_ai.completion.context import CompletionContext
+    from flowjet.cli.completion import engine as llm_mod
+    from flowjet.cli.completion.context import CompletionContext
 
     calls: list[str] = []
 

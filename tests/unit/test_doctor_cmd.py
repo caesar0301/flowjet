@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from fj_ai.cli import parse_args
-from fj_ai.doctor_cmd import parse_doctor_args, run_doctor
+from flowjet.cli.cli import parse_args
+from flowjet.cli.doctor_cmd import parse_doctor_args, run_doctor
 
 
 def _stub_browser_ok() -> dict:
@@ -35,13 +35,13 @@ def test_parse_doctor_args_defaults() -> None:
 
 
 def test_main_doctor_dispatches(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    from fj_ai import cli
+    from flowjet.cli import cli
 
     called: list[list[str]] = []
 
     monkeypatch.setattr(cli, "configure_cli_logging", lambda **_k: None)
     monkeypatch.setattr(
-        "fj_ai.doctor_cmd.run_doctor",
+        "flowjet.cli.doctor_cmd.run_doctor",
         lambda argv: called.append(list(argv)) or 0,
     )
 
@@ -65,14 +65,14 @@ def test_run_doctor_json(monkeypatch, capsys) -> None:  # type: ignore[no-untype
             }
         ]
 
-    monkeypatch.setattr("fj_ai.doctor_cmd._run_diagnose", fake_diagnose)
-    monkeypatch.setattr("fj_ai.doctor_cmd._check_browser_deps", _stub_browser_ok)
+    monkeypatch.setattr("flowjet.cli.doctor_cmd._run_diagnose", fake_diagnose)
+    monkeypatch.setattr("flowjet.cli.doctor_cmd._check_browser_deps", _stub_browser_ok)
     monkeypatch.setattr(
-        "fj_ai.doctor_cmd._check_reference_skills", lambda **_k: _stub_reference_skills_ok()
+        "flowjet.cli.doctor_cmd._check_reference_skills", lambda **_k: _stub_reference_skills_ok()
     )
-    monkeypatch.setattr("fj_ai.doctor_cmd._check_anydoc", lambda: _stub_anydoc_ok())
+    monkeypatch.setattr("flowjet.cli.doctor_cmd._check_anydoc", lambda: _stub_anydoc_ok())
     monkeypatch.setattr(
-        "fj_ai.agent.load_config",
+        "flowjet.cli.agent.load_config",
         lambda _path=None: SimpleNamespace(),
     )
     assert run_doctor(["--format", "json", "--no-color"]) == 0
@@ -100,14 +100,14 @@ def test_run_doctor_progressive_text(monkeypatch, capsys) -> None:  # type: igno
             }
         ]
 
-    monkeypatch.setattr("fj_ai.doctor_cmd._run_diagnose", fake_diagnose)
-    monkeypatch.setattr("fj_ai.doctor_cmd._check_browser_deps", _stub_browser_ok)
+    monkeypatch.setattr("flowjet.cli.doctor_cmd._run_diagnose", fake_diagnose)
+    monkeypatch.setattr("flowjet.cli.doctor_cmd._check_browser_deps", _stub_browser_ok)
     monkeypatch.setattr(
-        "fj_ai.doctor_cmd._check_reference_skills", lambda **_k: _stub_reference_skills_ok()
+        "flowjet.cli.doctor_cmd._check_reference_skills", lambda **_k: _stub_reference_skills_ok()
     )
-    monkeypatch.setattr("fj_ai.doctor_cmd._check_anydoc", lambda: _stub_anydoc_ok())
+    monkeypatch.setattr("flowjet.cli.doctor_cmd._check_anydoc", lambda: _stub_anydoc_ok())
     monkeypatch.setattr(
-        "fj_ai.agent.load_config",
+        "flowjet.cli.agent.load_config",
         lambda _path=None: SimpleNamespace(),
     )
     code = run_doctor(["--no-color", "--fail-on", "warning"])
@@ -123,9 +123,9 @@ def test_run_doctor_missing_diagnose_api(monkeypatch, capsys) -> None:  # type: 
     async def boom(_config=None, **_kwargs):
         raise RuntimeError("soothe-nano diagnose API unavailable")
 
-    monkeypatch.setattr("fj_ai.doctor_cmd._run_diagnose", boom)
+    monkeypatch.setattr("flowjet.cli.doctor_cmd._run_diagnose", boom)
     monkeypatch.setattr(
-        "fj_ai.agent.load_config",
+        "flowjet.cli.agent.load_config",
         lambda _path=None: SimpleNamespace(),
     )
     assert run_doctor(["--no-color"]) == 1
@@ -133,7 +133,7 @@ def test_run_doctor_missing_diagnose_api(monkeypatch, capsys) -> None:  # type: 
 
 
 def test_check_browser_deps_missing(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    from fj_ai import doctor_cmd
+    from flowjet.cli import doctor_cmd
 
     monkeypatch.setattr(doctor_cmd, "_find_chrome_executable", lambda: None)
     monkeypatch.setattr(doctor_cmd, "_find_chromedriver", lambda: None)
@@ -146,7 +146,7 @@ def test_check_browser_deps_missing(monkeypatch) -> None:  # type: ignore[no-unt
 
 
 def test_check_browser_deps_present(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    from fj_ai import doctor_cmd
+    from flowjet.cli import doctor_cmd
 
     monkeypatch.setattr(doctor_cmd, "_find_chrome_executable", lambda: "/usr/bin/chrome")
     monkeypatch.setattr(doctor_cmd, "_find_chromedriver", lambda: "/usr/bin/chromedriver")
@@ -158,7 +158,7 @@ def test_check_browser_deps_present(monkeypatch) -> None:  # type: ignore[no-unt
 
 
 def test_find_chrome_executable_uses_path(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    from fj_ai import doctor_cmd
+    from flowjet.cli import doctor_cmd
 
     monkeypatch.setattr(doctor_cmd.sys, "platform", "linux")
     monkeypatch.setattr(doctor_cmd.os.path, "isfile", lambda _p: False)
@@ -170,7 +170,7 @@ def test_find_chrome_executable_uses_path(monkeypatch) -> None:  # type: ignore[
 
 
 def test_check_reference_skills_missing(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    from fj_ai import doctor_cmd
+    from flowjet.cli import doctor_cmd
 
     monkeypatch.setattr(doctor_cmd, "_installed_skill_names", lambda: set())
 
@@ -182,7 +182,7 @@ def test_check_reference_skills_missing(monkeypatch) -> None:  # type: ignore[no
 
 
 def test_check_reference_skills_installed(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    from fj_ai import doctor_cmd
+    from flowjet.cli import doctor_cmd
 
     monkeypatch.setattr(
         doctor_cmd,
@@ -196,7 +196,7 @@ def test_check_reference_skills_installed(monkeypatch) -> None:  # type: ignore[
 
 
 def test_check_anydoc_missing(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    from fj_ai import doctor_cmd
+    from flowjet.cli import doctor_cmd
 
     monkeypatch.setattr(doctor_cmd, "_find_anydoc", lambda: None)
 
@@ -208,7 +208,7 @@ def test_check_anydoc_missing(monkeypatch) -> None:  # type: ignore[no-untyped-d
 
 
 def test_check_anydoc_present(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    from fj_ai import doctor_cmd
+    from flowjet.cli import doctor_cmd
 
     monkeypatch.setattr(doctor_cmd, "_find_anydoc", lambda: "/usr/local/bin/anydoc")
     monkeypatch.setattr(doctor_cmd, "_bin_version", lambda _path: None)
@@ -219,14 +219,14 @@ def test_check_anydoc_present(monkeypatch) -> None:  # type: ignore[no-untyped-d
 
 
 def test_run_doctor_includes_browser_category(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
-    from fj_ai import doctor_cmd
+    from flowjet.cli import doctor_cmd
 
     async def fake_diagnose(_config=None, **_kwargs):
         return []
 
-    monkeypatch.setattr("fj_ai.doctor_cmd._run_diagnose", fake_diagnose)
+    monkeypatch.setattr("flowjet.cli.doctor_cmd._run_diagnose", fake_diagnose)
     monkeypatch.setattr(
-        "fj_ai.doctor_cmd._check_browser_deps",
+        "flowjet.cli.doctor_cmd._check_browser_deps",
         lambda: {
             "category": "browser",
             "status": "ok",
@@ -235,11 +235,11 @@ def test_run_doctor_includes_browser_category(monkeypatch, capsys) -> None:  # t
         },
     )
     monkeypatch.setattr(
-        "fj_ai.doctor_cmd._check_reference_skills", lambda **_k: _stub_reference_skills_ok()
+        "flowjet.cli.doctor_cmd._check_reference_skills", lambda **_k: _stub_reference_skills_ok()
     )
-    monkeypatch.setattr("fj_ai.doctor_cmd._check_anydoc", lambda: _stub_anydoc_ok())
+    monkeypatch.setattr("flowjet.cli.doctor_cmd._check_anydoc", lambda: _stub_anydoc_ok())
     monkeypatch.setattr(
-        "fj_ai.agent.load_config",
+        "flowjet.cli.agent.load_config",
         lambda _path=None: SimpleNamespace(),
     )
 

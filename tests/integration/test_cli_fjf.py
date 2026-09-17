@@ -136,7 +136,7 @@ def test_fjf_setup_does_not_inject_follow(
     stub_agent_runtime: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import fj_ai.setup_cmd as setup_cmd
+    import flowjet.cli.setup_cmd as setup_cmd
 
     called: list[str | None] = []
     monkeypatch.setattr(setup_cmd, "run_setup", lambda path=None: called.append(path) or 0)

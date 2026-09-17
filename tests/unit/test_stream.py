@@ -9,8 +9,8 @@ from typing import Any
 import pytest
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 
-from fj_ai.progress import ProgressLine
-from fj_ai.stream import (
+from flowjet.cli.progress import ProgressLine
+from flowjet.cli.stream import (
     AnswerWriter,
     _ai_text,
     _status_preview,
@@ -173,7 +173,7 @@ def test_answer_writer_throttles_rapid_preview_updates(monkeypatch: pytest.Monke
     status = ProgressLine(out, enabled=True)
     writer = AnswerWriter(out, status, live=True)
     clock = {"t": 0.0}
-    monkeypatch.setattr("fj_ai.stream.time.monotonic", lambda: clock["t"])
+    monkeypatch.setattr("flowjet.cli.stream.time.monotonic", lambda: clock["t"])
 
     writer.set("a")
     clock["t"] = 0.01
@@ -193,7 +193,7 @@ def test_answer_writer_reset_clears_throttle_state(monkeypatch: pytest.MonkeyPat
     status = ProgressLine(out, enabled=True)
     writer = AnswerWriter(out, status, live=True)
     clock = {"t": 0.0}
-    monkeypatch.setattr("fj_ai.stream.time.monotonic", lambda: clock["t"])
+    monkeypatch.setattr("flowjet.cli.stream.time.monotonic", lambda: clock["t"])
 
     writer.set("before tools")
     paints_after_first = out.getvalue().count("\r")
@@ -213,7 +213,7 @@ def test_status_preview_skips_trailing_marker_without_tail() -> None:
 async def test_stream_query_cjk_narration_preview_uses_tail(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from fj_ai.progress import ProgressLine, _display_width, _line_budget
+    from flowjet.cli.progress import ProgressLine, _display_width, _line_budget
 
     monkeypatch.setenv("FJ_PROGRESS_WIDTH", "36")
     clock = {"t": 0.0}
@@ -222,7 +222,7 @@ async def test_stream_query_cjk_narration_preview_uses_tail(
         clock["t"] += 0.15
         return clock["t"]
 
-    monkeypatch.setattr("fj_ai.stream.time.monotonic", fake_monotonic)
+    monkeypatch.setattr("flowjet.cli.stream.time.monotonic", fake_monotonic)
     out = StringIO()
     progress = ProgressLine(out, enabled=True)
     updates: list[tuple[str, bool]] = []
@@ -269,7 +269,7 @@ async def test_stream_query_many_chunks_throttles_narration_updates(
 ) -> None:
     out = StringIO()
     times = iter([float(i) * 0.01 for i in range(2000)])
-    monkeypatch.setattr("fj_ai.stream.time.monotonic", lambda: next(times))
+    monkeypatch.setattr("flowjet.cli.stream.time.monotonic", lambda: next(times))
 
     chunks = [_msg_chunk(AIMessageChunk(content="x" * (i + 1))) for i in range(40)]
     chunks.append(_msg_chunk(AIMessage(content="x" * 40)))

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from soothe_nano.config import SootheConfig
 
-from fj_ai.agent import apply_fj_defaults, ensure_workspace
+from flowjet.cli.agent import apply_fj_defaults, ensure_workspace
 
 
 def test_apply_fj_defaults_forces_sqlite() -> None:
@@ -23,7 +23,7 @@ def test_apply_fj_defaults_forces_sqlite() -> None:
 
 
 def test_apply_fj_defaults_sets_core_skills_when_unset() -> None:
-    from fj_ai.agent import fj_core_skill_names
+    from flowjet.cli.agent import fj_core_skill_names
 
     cfg = SootheConfig()
     assert cfg.progressive_skills.core_skills is None
@@ -69,10 +69,10 @@ def test_ensure_workspace_sets_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
 async def test_open_sqlite_checkpointer_yields_none_when_unresolved(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import fj_ai.agent as agent_mod
+    import flowjet.core.bootstrap as bootstrap_mod
 
-    monkeypatch.setattr(agent_mod, "resolve_checkpointer", lambda _cfg: None)
-    async with agent_mod.open_sqlite_checkpointer(SootheConfig()) as cp:
+    monkeypatch.setattr(bootstrap_mod, "resolve_checkpointer", lambda _cfg: None)
+    async with bootstrap_mod.open_sqlite_checkpointer(SootheConfig()) as cp:
         assert cp is None
 
 
@@ -80,10 +80,12 @@ async def test_open_sqlite_checkpointer_yields_none_when_unresolved(
 async def test_open_sqlite_checkpointer_opens_db(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    import fj_ai.agent as agent_mod
+    import flowjet.core.bootstrap as bootstrap_mod
 
     db_path = tmp_path / "checkpoints.db"
-    monkeypatch.setattr(agent_mod, "resolve_checkpointer", lambda _cfg: (object(), str(db_path)))
+    monkeypatch.setattr(
+        bootstrap_mod, "resolve_checkpointer", lambda _cfg: (object(), str(db_path))
+    )
 
     class FakeSaver:
         def __init__(self, conn: object, serde: object = None) -> None:
@@ -119,7 +121,7 @@ async def test_open_sqlite_checkpointer_opens_db(
     monkeypatch.setattr(aio_mod, "AsyncSqliteSaver", fake_saver)
     monkeypatch.setattr(serde_mod, "create_soothe_serde", lambda: object())
 
-    async with agent_mod.open_sqlite_checkpointer(SootheConfig()) as cp:
+    async with bootstrap_mod.open_sqlite_checkpointer(SootheConfig()) as cp:
         assert cp is savers[0]
         assert savers[0].setup_called is True
     assert fake_conn.closed is True
@@ -127,7 +129,7 @@ async def test_open_sqlite_checkpointer_opens_db(
 
 @pytest.mark.asyncio
 async def test_build_agent_wires_checkpointer(monkeypatch: pytest.MonkeyPatch) -> None:
-    import fj_ai.agent as agent_mod
+    import flowjet.cli.agent as agent_mod
 
     created: dict[str, object] = {}
 
@@ -139,14 +141,14 @@ async def test_build_agent_wires_checkpointer(monkeypatch: pytest.MonkeyPatch) -
         def __init__(self) -> None:
             self.graph = FakeGraph()
 
-    def fake_create(_cfg: object, **_kwargs: object) -> FakeAgent:
+    def fake_create(_cfg: object, _profile: object = None, **_kwargs: object) -> FakeAgent:
         agent = FakeAgent()
         created["agent"] = agent
         return agent
 
     monkeypatch.setattr(agent_mod, "configure_cli_logging", lambda **_k: None)
     monkeypatch.setattr(agent_mod, "ensure_workspace", lambda _w=None: Path.cwd())
-    monkeypatch.setattr(agent_mod, "create_nano_agent", fake_create)
+    monkeypatch.setattr(agent_mod, "create_agent", fake_create)
     monkeypatch.setattr(agent_mod, "silence_after_plugins", lambda **_k: None)
 
     cp = object()
@@ -165,7 +167,7 @@ async def test_build_agent_ask_mode_forwards_interaction_mode(
     read-only filesystem tools, ask policy profile, and ask system prompt.
     fj no longer re-implements these; it just selects the mode.
     """
-    import fj_ai.agent as agent_mod
+    import flowjet.cli.agent as agent_mod
 
     captured: dict[str, object] = {}
 
@@ -176,13 +178,13 @@ async def test_build_agent_ask_mode_forwards_interaction_mode(
         def __init__(self) -> None:
             self.graph = FakeGraph()
 
-    def fake_create(_cfg: object, **kwargs: object) -> FakeAgent:
+    def fake_create(_cfg: object, _profile: object = None, **kwargs: object) -> FakeAgent:
         captured.update(kwargs)
         return FakeAgent()
 
     monkeypatch.setattr(agent_mod, "configure_cli_logging", lambda **_k: None)
     monkeypatch.setattr(agent_mod, "ensure_workspace", lambda _w=None: Path.cwd())
-    monkeypatch.setattr(agent_mod, "create_nano_agent", fake_create)
+    monkeypatch.setattr(agent_mod, "create_agent", fake_create)
     monkeypatch.setattr(agent_mod, "silence_after_plugins", lambda **_k: None)
 
     await agent_mod.build_agent(SootheConfig(), ask_mode=True)
@@ -200,7 +202,7 @@ async def test_build_agent_default_mode_auto_resolves(
     fj no longer forces a mode; passing ``None`` lets soothe-nano resolve from
     the config (default ``agent``) instead of pinning to bypass.
     """
-    import fj_ai.agent as agent_mod
+    import flowjet.cli.agent as agent_mod
 
     captured: dict[str, object] = {}
 
@@ -211,13 +213,13 @@ async def test_build_agent_default_mode_auto_resolves(
         def __init__(self) -> None:
             self.graph = FakeGraph()
 
-    def fake_create(_cfg: object, **kwargs: object) -> FakeAgent:
+    def fake_create(_cfg: object, _profile: object = None, **kwargs: object) -> FakeAgent:
         captured.update(kwargs)
         return FakeAgent()
 
     monkeypatch.setattr(agent_mod, "configure_cli_logging", lambda **_k: None)
     monkeypatch.setattr(agent_mod, "ensure_workspace", lambda _w=None: Path.cwd())
-    monkeypatch.setattr(agent_mod, "create_nano_agent", fake_create)
+    monkeypatch.setattr(agent_mod, "create_agent", fake_create)
     monkeypatch.setattr(agent_mod, "silence_after_plugins", lambda **_k: None)
 
     await agent_mod.build_agent(SootheConfig(), ask_mode=False)
@@ -257,7 +259,7 @@ async def test_build_agent_bypass_mode_forwards_interaction_mode(
     Bypass mode skips all security enforcement layers; the nano builder handles
     the policy profile and system prompt natively. fj only selects the mode.
     """
-    import fj_ai.agent as agent_mod
+    import flowjet.cli.agent as agent_mod
 
     captured: dict[str, object] = {}
 
@@ -268,13 +270,13 @@ async def test_build_agent_bypass_mode_forwards_interaction_mode(
         def __init__(self) -> None:
             self.graph = FakeGraph()
 
-    def fake_create(_cfg: object, **kwargs: object) -> FakeAgent:
+    def fake_create(_cfg: object, _profile: object = None, **kwargs: object) -> FakeAgent:
         captured.update(kwargs)
         return FakeAgent()
 
     monkeypatch.setattr(agent_mod, "configure_cli_logging", lambda **_k: None)
     monkeypatch.setattr(agent_mod, "ensure_workspace", lambda _w=None: Path.cwd())
-    monkeypatch.setattr(agent_mod, "create_nano_agent", fake_create)
+    monkeypatch.setattr(agent_mod, "create_agent", fake_create)
     monkeypatch.setattr(agent_mod, "silence_after_plugins", lambda **_k: None)
 
     await agent_mod.build_agent(SootheConfig(), bypass_mode=True)
@@ -287,7 +289,7 @@ async def test_build_agent_bypass_overrides_ask(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When both ask_mode and bypass_mode are set, bypass takes precedence."""
-    import fj_ai.agent as agent_mod
+    import flowjet.cli.agent as agent_mod
 
     captured: dict[str, object] = {}
 
@@ -298,13 +300,13 @@ async def test_build_agent_bypass_overrides_ask(
         def __init__(self) -> None:
             self.graph = FakeGraph()
 
-    def fake_create(_cfg: object, **kwargs: object) -> FakeAgent:
+    def fake_create(_cfg: object, _profile: object = None, **kwargs: object) -> FakeAgent:
         captured.update(kwargs)
         return FakeAgent()
 
     monkeypatch.setattr(agent_mod, "configure_cli_logging", lambda **_k: None)
     monkeypatch.setattr(agent_mod, "ensure_workspace", lambda _w=None: Path.cwd())
-    monkeypatch.setattr(agent_mod, "create_nano_agent", fake_create)
+    monkeypatch.setattr(agent_mod, "create_agent", fake_create)
     monkeypatch.setattr(agent_mod, "silence_after_plugins", lambda **_k: None)
 
     await agent_mod.build_agent(SootheConfig(), ask_mode=True, bypass_mode=True)

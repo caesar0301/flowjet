@@ -38,7 +38,7 @@ def run_fj_live_stream(
     capsys: pytest.CaptureFixture[str],
     live_stream_runtime: dict[str, Any],
 ) -> Any:
-    from fj_ai import cli
+    from flowjet.cli import cli
 
     monkeypatch.setattr(cli, "configure_cli_logging", lambda **_k: None)
 
@@ -77,7 +77,7 @@ def test_cli_cjk_progress_preview_shows_latest_clause(
     run_fj_live_stream: Any,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from fj_ai.progress import _display_width, _line_budget
+    from flowjet.cli.progress import _display_width, _line_budget
 
     monkeypatch.setenv("FJ_PROGRESS_WIDTH", "36")
     prefix = "前面说明。" * 4
@@ -103,7 +103,7 @@ def test_cli_stream_throttles_rapid_narration_chunks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     times = iter([float(i) * 0.01 for i in range(2000)])
-    monkeypatch.setattr("fj_ai.stream.time.monotonic", lambda: next(times))
+    monkeypatch.setattr("flowjet.cli.stream.time.monotonic", lambda: next(times))
 
     chunks = [_msg_chunk(AIMessageChunk(content="中" * (i + 1))) for i in range(50)]
     chunks.append(_msg_chunk(AIMessage(content="中" * 50)))

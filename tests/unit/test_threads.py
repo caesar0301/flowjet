@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
-from fj_ai.threads import (
+from flowjet.cli.threads import (
     ThreadInfo,
     format_thread_list,
     list_threads,
@@ -101,7 +101,7 @@ class _FakeCp:
 
 @pytest.mark.asyncio
 async def test_resolve_thread_id_priority(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    from fj_ai import threads as threads_mod
+    from flowjet.cli import threads as threads_mod
 
     path = tmp_path / "active"
     monkeypatch.setattr(threads_mod, "active_thread_path", lambda *_a, **_k: path)
@@ -129,7 +129,7 @@ async def test_resolve_thread_id_priority(tmp_path, monkeypatch) -> None:  # typ
 
 
 def test_active_thread_roundtrip(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    from fj_ai import threads as threads_mod
+    from flowjet.cli import threads as threads_mod
 
     path = tmp_path / "active"
     monkeypatch.setattr(threads_mod, "active_thread_path", lambda *_a, **_k: path)
@@ -139,7 +139,7 @@ def test_active_thread_roundtrip(tmp_path, monkeypatch) -> None:  # type: ignore
 
 
 def test_resolve_workdir_finds_git_root(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    from fj_ai.threads import resolve_workdir
+    from flowjet.cli.threads import resolve_workdir
 
     repo = tmp_path / "repo"
     nested = repo / "src" / "pkg"
@@ -157,7 +157,7 @@ def test_resolve_workdir_finds_git_root(tmp_path) -> None:  # type: ignore[no-un
 
 
 def test_resolve_workdir_without_repo_uses_dir(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    from fj_ai.threads import resolve_workdir
+    from flowjet.cli.threads import resolve_workdir
 
     plain = tmp_path / "plain"
     plain.mkdir()
@@ -165,7 +165,7 @@ def test_resolve_workdir_without_repo_uses_dir(tmp_path) -> None:  # type: ignor
 
 
 def test_active_thread_is_scoped_per_workdir(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    from fj_ai import threads as threads_mod
+    from flowjet.cli import threads as threads_mod
 
     monkeypatch.setattr(threads_mod, "_soothe_home", lambda: tmp_path / "home")
     one = tmp_path / "one"
@@ -186,7 +186,7 @@ def test_active_thread_is_scoped_per_workdir(tmp_path, monkeypatch) -> None:  # 
 
 @pytest.mark.asyncio
 async def test_resolve_thread_id_follow_ignores_other_workdir(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    from fj_ai import threads as threads_mod
+    from flowjet.cli import threads as threads_mod
 
     monkeypatch.setattr(threads_mod, "_soothe_home", lambda: tmp_path / "home")
     one = tmp_path / "one"
@@ -203,7 +203,7 @@ async def test_resolve_thread_id_follow_ignores_other_workdir(tmp_path, monkeypa
 
 
 def test_hold_thread_lock_blocks_same_thread(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    from fj_ai import threads as threads_mod
+    from flowjet.cli import threads as threads_mod
 
     monkeypatch.setattr(threads_mod, "_soothe_home", lambda: tmp_path)
 

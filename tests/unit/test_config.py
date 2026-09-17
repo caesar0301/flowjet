@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from fj_ai.agent import default_config_path, load_config
+from flowjet.cli.agent import default_config_path, load_config
 
 
 def test_default_config_path_ends_with_nano_yml() -> None:
@@ -17,7 +17,7 @@ def test_default_config_path_ends_with_nano_yml() -> None:
 
 
 def test_default_config_path_uses_soothe_home(monkeypatch: pytest.MonkeyPatch) -> None:
-    import fj_ai.agent as config_mod
+    import flowjet.core.bootstrap as config_mod
 
     monkeypatch.setattr(config_mod, "SOOTHE_HOME", Path("/tmp/custom-soothe"))
     assert config_mod.default_config_path() == Path("/tmp/custom-soothe/config/nano.yml")

@@ -105,7 +105,7 @@ Clean, efficient Tab completion that **never boots `CodingCoreAgent`**. Inferenc
 
 | Constraint | Rule |
 | ---------- | ---- |
-| No agent | Completion must not import or call `fj_ai.agent.build_agent` / `create_nano_agent` |
+| No agent | Completion must not import or call `flowjet.cli.agent.build_agent` / `create_nano_agent` |
 | Model role | `config.create_chat_model("fast")` — soothe-nano falls back to `default` when `fast` is unset |
 | Predict only | No tool calls, no workspace mutations, no task execution |
 | Latency | Hard LLM deadline (~200–250ms); on timeout/error return local candidates only |
@@ -120,7 +120,7 @@ Bash / Zsh TAB
 fj __complete -- <COMP_WORDS...>
         │
         ▼
-load_config()                     # existing fj_ai.config
+load_config()                     # existing flowjet.core.bootstrap.load_config
         │
         ▼
 slim CompletionContext            # cwd, git summary, prefix, history
@@ -139,7 +139,7 @@ stdout (one candidate per line)
 ## Module layout
 
 ```text
-src/fj_ai/completion/
+src/flowjet/cli/completion/
   __init__.py
   cmd.py          # __complete entrypoint
   context.py      # slim CompletionContext builder
@@ -165,7 +165,7 @@ Successful normal queries (`fj <query>`) may append to completion history so lat
 ## Model resolution
 
 ```python
-from fj_ai.config import load_config
+from flowjet.core.bootstrap import load_config
 
 config = load_config(config_path)
 model = config.create_chat_model("fast")  # fallback_role defaults to "default"

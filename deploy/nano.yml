@@ -1,0 +1,82 @@
+# FlowJet Server nano.yml — deployment config
+# PostgreSQL persistence + pgvector + DashScope (OpenAI-compatible) provider.
+# Mirrors ../soothe/deploy/nano.yml structure; keeps the DashScope provider
+# from config/nano.yml (flowjet-server default).
+#
+# Mounted at /var/lib/soothe/config/nano.yml (default agent path).
+# Uses environment variable substitution (${ENV_VAR}).
+#
+# Required env vars (set in deploy/.env):
+#   DASHSCOPE_API_KEY   - DashScope provider credential
+#   DASHSCOPE_BASE_URL  - DashScope API base URL
+
+# =============================================================================
+# LLM Providers
+# =============================================================================
+providers:
+  - name: dashscope
+    provider_type: openai
+    api_base_url: "${DASHSCOPE_BASE_URL}"
+    api_key: "${DASHSCOPE_API_KEY}"
+    models:
+      - glm-5.2
+      - qwen3.7-plus
+      - kimi-k2.5
+      - kimi-k2.7-code
+      - MiniMax-M3
+      - text-embedding-v4
+
+# =============================================================================
+# Model Router
+# =============================================================================
+router_profiles:
+  - name: production
+    router:
+      default: "dashscope:glm-5.2"
+      fast: "dashscope:qwen3.6-flash"
+      think: "dashscope:glm-5.2"
+      image: "dashscope:qwen3.7-plus"
+      ocr: "dashscope:qwen3.7-plus"
+
+active_router_profile: production
+
+embedding_profile:
+  - model_role: dashscope:text-embedding-v4
+    embedding_dims: 1536
+
+# =============================================================================
+# Persistence Backend
+# =============================================================================
+persistence:
+  default_backend: postgresql
+  postgres_base_dsn: "postgresql://postgres:postgres@flowjet-pgvector:5432"
+  # Override the vectors DB name to match the pgvector store DSN below.
+  postgres_databases:
+    checkpoints: soothe_checkpoints
+    metadata: soothe_metadata
+    vectors: flowjet_vectors
+    memory: soothe_memory
+  postgres:
+    pool_max_idle_seconds: 90
+    pool_max_lifetime_seconds: 900
+
+# =============================================================================
+# Vector Stores
+# =============================================================================
+vector_stores:
+  - name: pgvector
+    provider_type: pgvector
+    dsn: "postgresql://postgres:postgres@flowjet-pgvector:5432/flowjet_vectors"
+    pool_size: 8
+
+vector_store_router:
+  default: "pgvector:soothe_default"
+
+# =============================================================================
+# Security & Observability
+# =============================================================================
+security:
+  allow_paths_outside_workspace: false
+
+observability:
+  log_file_level: INFO

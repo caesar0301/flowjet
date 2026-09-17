@@ -1,0 +1,102 @@
+# Docker Compose for FlowJet Server Deployment
+# Self-contained stack: PostgreSQL + pgvector + flowjet-server
+# Pattern follows ../soothe/deploy/docker-compose.yml.
+#
+# Usage (from deploy/ directory):
+#   docker compose up -d                    # Start stack
+#   docker compose down                     # Stop stack
+#   docker compose ps                       # Show status
+#
+# Required environment variables (set in deploy/.env):
+#   DASHSCOPE_API_KEY=...                   # DashScope (OpenAI-compatible) key
+#   DASHSCOPE_BASE_URL=...                  # DashScope API base URL
+# Optional:
+#   FLOWJET_API_KEY=...                     # Require Bearer auth on /v1 endpoints
+
+services:
+  flowjet-pgvector:
+    image: registry.cn-hangzhou.aliyuncs.com/lacogito/pgvector:pg17
+    restart: unless-stopped
+    command:
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - work_mem=64MB
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    networks:
+      - flowjet-db
+    expose:
+      - "5432"
+    volumes:
+      - flowjet_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    shm_size: 256mb
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  flowjet-server:
+    image: registry.cn-hangzhou.aliyuncs.com/lacogito/flowjet-server:v2.0.0
+    restart: unless-stopped
+    depends_on:
+      flowjet-pgvector:
+        condition: service_healthy
+    networks:
+      - flowjet-db
+      - flowjet-app
+    environment:
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
+      DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL}
+      FLOWJET_API_KEY: ${FLOWJET_API_KEY:-}
+      FLOWJET_HOST: 0.0.0.0
+      FLOWJET_PORT: "8618"
+    ports:
+      - target: 8618
+        published: ${FLOWJET_PORT_PUBLISHED:-8618}
+        host_ip: ${FLOWJET_BIND_IP:-127.0.0.1}
+    volumes:
+      - flowjet_server_data:/var/lib/soothe
+      - ./nano.yml:/var/lib/soothe/config/nano.yml:ro
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8618/health', timeout=5)" || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  flowjet-db:
+  flowjet-app:
+
+volumes:
+  flowjet_postgres_data:
+  flowjet_server_data:

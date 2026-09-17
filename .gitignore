@@ -95,7 +95,7 @@ ipython_config.py
 # Pipfile.lock
 
 # UV
-# flowjet-agent commits uv.lock for reproducible CLI installs.
+# flowjet commits uv.lock for reproducible installs (CLI + server extras).
 
 # poetry
 #   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
@@ -254,4 +254,4 @@ Temporary Items
 
 # Claude Code session-local
 .claude/
-uv.lock
+.codebuddy/

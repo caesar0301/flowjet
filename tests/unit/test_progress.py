@@ -7,7 +7,7 @@ from io import StringIO
 
 import pytest
 
-from fj_ai.progress import (
+from flowjet.cli.progress import (
     ProgressLine,
     format_args_preview,
     format_tool_activity,
@@ -49,7 +49,7 @@ def test_friendly_cognition_thinking() -> None:
 
 def test_format_read_file_activity() -> None:
     label, color = format_tool_activity(
-        "read_file", {"file_path": "/Users/chenxm/Workspace/fj-ai/src/fj_ai/cli.py"}
+        "read_file", {"file_path": "/Users/chenxm/Workspace/fj-ai/src/flowjet.cli/cli.py"}
     )
     assert label.startswith("Reading ")
     assert "cli.py" in label
@@ -64,10 +64,12 @@ def test_format_run_command_activity() -> None:
 
 
 def test_format_grep_activity() -> None:
-    label, _color = format_tool_activity("grep", {"pattern": "ProgressLine", "path": "src/fj_ai"})
+    label, _color = format_tool_activity(
+        "grep", {"pattern": "ProgressLine", "path": "src/flowjet.cli"}
+    )
     assert "Grepping" in label
     assert "ProgressLine" in label
-    assert "fj_ai" in label or "src/fj_ai" in label
+    assert "flowjet.cli" in label or "src/flowjet.cli" in label
 
 
 def test_format_args_preview_primary() -> None:
@@ -91,10 +93,10 @@ def test_format_tool_done_error_includes_detail() -> None:
 
 
 def test_progress_respects_width_budget(monkeypatch: pytest.MonkeyPatch) -> None:
-    from fj_ai.progress import _display_width
+    from flowjet.cli.progress import _display_width
 
     monkeypatch.setenv("FJ_PROGRESS_WIDTH", "40")
-    long_path = "/Users/chenxm/Workspace/fj-ai/src/fj_ai/" + ("very_long_dir/" * 8) + "cli.py"
+    long_path = "/Users/chenxm/Workspace/fj-ai/src/flowjet.cli/" + ("very_long_dir/" * 8) + "cli.py"
     label, _color = format_tool_activity("read_file", {"file_path": long_path})
     assert _display_width(label) <= 40
     assert label.startswith("Reading ")
@@ -102,7 +104,7 @@ def test_progress_respects_width_budget(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_truncate_path_keeps_basename() -> None:
-    from fj_ai.progress import _display_width, _truncate_path
+    from flowjet.cli.progress import _display_width, _truncate_path
 
     out = _truncate_path("/a/b/c/d/e/f/g/important.py", 18)
     assert out.endswith("important.py") or "important.py" in out
@@ -110,7 +112,7 @@ def test_truncate_path_keeps_basename() -> None:
 
 
 def test_display_width_counts_cjk_double() -> None:
-    from fj_ai.progress import _display_width, _truncate_cols
+    from flowjet.cli.progress import _display_width, _truncate_cols
 
     text = "中文测试"
     assert _display_width(text) == 8
@@ -119,7 +121,7 @@ def test_display_width_counts_cjk_double() -> None:
 
 
 def test_truncate_middle_keeps_head_and_tail() -> None:
-    from fj_ai.progress import _display_width, _truncate_cols, _truncate_middle
+    from flowjet.cli.progress import _display_width, _truncate_cols, _truncate_middle
 
     text = "aaaaaaaaaa" + "bbbbbbbbbb"
     out = _truncate_middle(text, 11)
@@ -131,7 +133,7 @@ def test_truncate_middle_keeps_head_and_tail() -> None:
 
 
 def test_truncate_middle_cjk() -> None:
-    from fj_ai.progress import _display_width, _truncate_middle
+    from flowjet.cli.progress import _display_width, _truncate_middle
 
     text = "前面很长的内容中间被省略后面可见"
     out = _truncate_middle(text, 12)
@@ -142,7 +144,7 @@ def test_truncate_middle_cjk() -> None:
 
 
 def test_content_preview_uses_middle_truncate(monkeypatch: pytest.MonkeyPatch) -> None:
-    from fj_ai.progress import _display_width
+    from flowjet.cli.progress import _display_width
 
     monkeypatch.setenv("FJ_PROGRESS_WIDTH", "48")
     content = "HEAD_MARKER_" + ("x" * 80) + "_TAIL_MARKER"
@@ -161,7 +163,7 @@ def test_content_preview_uses_middle_truncate(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_fit_tail_shows_latest_narration() -> None:
-    from fj_ai.progress import _display_width, _fit
+    from flowjet.cli.progress import _display_width, _fit
 
     long = "前面很长的一段说明。" + "现在创建 GitHub Release v1.0.8。"
     fitted = _fit(long, budget=20, tail=True)
@@ -171,7 +173,7 @@ def test_fit_tail_shows_latest_narration() -> None:
 
 
 def test_truncate_cols_mixed_ascii_cjk() -> None:
-    from fj_ai.progress import _display_width, _truncate_cols
+    from flowjet.cli.progress import _display_width, _truncate_cols
 
     text = "CI 全部绿色通过"
     assert _display_width(text) == 15
@@ -183,7 +185,7 @@ def test_truncate_cols_mixed_ascii_cjk() -> None:
 def test_progress_line_update_tail_prefers_latest_clause(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from fj_ai.progress import _display_width, _line_budget
+    from flowjet.cli.progress import _display_width, _line_budget
 
     monkeypatch.setenv("FJ_PROGRESS_WIDTH", "24")
     buf = StringIO()
@@ -204,7 +206,7 @@ def test_progress_line_update_tail_prefers_latest_clause(
 def test_progress_line_cjk_paint_respects_display_width(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from fj_ai.progress import _display_width, _line_budget
+    from flowjet.cli.progress import _display_width, _line_budget
 
     monkeypatch.setenv("FJ_PROGRESS_WIDTH", "24")
     buf = StringIO()
@@ -219,7 +221,7 @@ def test_progress_line_cjk_paint_respects_display_width(
 
 def test_format_tool_done_keeps_context() -> None:
     label, color = format_tool_done(
-        "read_file", {"file_path": "src/fj_ai/progress.py"}, is_error=False
+        "read_file", {"file_path": "src/flowjet.cli/progress.py"}, is_error=False
     )
     assert "Thinking" in label
     assert "read_file" in label
@@ -360,7 +362,7 @@ def test_friendly_memory_events() -> None:
 
 
 def test_normalize_args_variants() -> None:
-    from fj_ai.progress import _normalize_args
+    from flowjet.cli.progress import _normalize_args
 
     assert _normalize_args(None) == {}
     assert _normalize_args("") == {}
@@ -373,7 +375,7 @@ def test_normalize_args_variants() -> None:
 
 
 def test_compact_types() -> None:
-    from fj_ai.progress import _compact
+    from flowjet.cli.progress import _compact
 
     assert _compact(None) == ""
     assert _compact(True) == "true"
@@ -385,7 +387,7 @@ def test_compact_types() -> None:
 
 
 def test_color_enabled_respects_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    from fj_ai.progress import _color_enabled
+    from flowjet.cli.progress import _color_enabled
 
     stream = StringIO()
     monkeypatch.setenv("NO_COLOR", "1")
@@ -396,7 +398,7 @@ def test_color_enabled_respects_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_line_budget_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    from fj_ai.progress import _PROGRESS_MAX, _PROGRESS_MIN, _line_budget
+    from flowjet.cli.progress import _PROGRESS_MAX, _PROGRESS_MIN, _line_budget
 
     monkeypatch.setenv("FJ_PROGRESS_WIDTH", "50")
     assert _line_budget() == 50
@@ -407,31 +409,31 @@ def test_line_budget_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_wide_budget_keeps_long_command(monkeypatch: pytest.MonkeyPatch) -> None:
-    from fj_ai.progress import _display_width
+    from flowjet.cli.progress import _display_width
 
     monkeypatch.setenv("FJ_PROGRESS_WIDTH", "120")
-    cmd = "ruff check src/fj_ai tests/unit --select E,F,W --fix"
+    cmd = "ruff check src/flowjet.cli tests/unit --select E,F,W --fix"
     label, _color = format_tool_activity("run_command", {"command": cmd})
     assert _display_width(label) <= 120
     assert "Running" in label
     # Old hard cap was 48; wide budget should keep more of the command.
     assert "--fix" in label or "--select" in label
-    assert "ruff check src/fj_ai" in label
+    assert "ruff check src/flowjet.cli" in label
 
 
 def test_wide_budget_keeps_long_pattern(monkeypatch: pytest.MonkeyPatch) -> None:
-    from fj_ai.progress import _display_width
+    from flowjet.cli.progress import _display_width
 
     monkeypatch.setenv("FJ_PROGRESS_WIDTH", "120")
     pattern = "ProgressLine_and_format_args_preview_density"
-    label, _ = format_tool_activity("grep", {"pattern": pattern, "path": "src/fj_ai"})
+    label, _ = format_tool_activity("grep", {"pattern": pattern, "path": "src/flowjet.cli"})
     assert _display_width(label) <= 120
     assert "ProgressLine_and_format_args" in label
-    assert "src/fj_ai" in label
+    assert "src/flowjet.cli" in label
 
 
 def test_narrow_budget_still_clamps(monkeypatch: pytest.MonkeyPatch) -> None:
-    from fj_ai.progress import _display_width
+    from flowjet.cli.progress import _display_width
 
     monkeypatch.setenv("FJ_PROGRESS_WIDTH", "40")
     cmd = "python -m pytest tests/unit/test_progress.py -q --tb=short"
@@ -441,7 +443,7 @@ def test_narrow_budget_still_clamps(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_args_preview_cjk_respects_display_width(monkeypatch: pytest.MonkeyPatch) -> None:
-    from fj_ai.progress import _display_width
+    from flowjet.cli.progress import _display_width
 
     monkeypatch.setenv("FJ_PROGRESS_WIDTH", "40")
     preview = format_args_preview(
@@ -458,7 +460,7 @@ def test_wide_budget_allows_two_arg_parts(monkeypatch: pytest.MonkeyPatch) -> No
     preview = format_args_preview(
         "edit_file",
         {
-            "file_path": "src/fj_ai/progress.py",
+            "file_path": "src/flowjet.cli/progress.py",
             "old_string": "old_value_here",
             "new_string": "new_value_here",
         },
@@ -499,17 +501,17 @@ def test_args_preview_strips_decoration() -> None:
 
 
 def test_short_path_keeps_two_segments() -> None:
-    from fj_ai.progress import _short_path
+    from flowjet.cli.progress import _short_path
 
-    out = _short_path("/Users/me/Workspace/fj-ai/src/fj_ai/cli.py", 40)
-    assert out == "fj_ai/cli.py"
+    out = _short_path("/Users/me/Workspace/fj-ai/src/flowjet.cli/cli.py", 40)
+    assert out == "flowjet.cli/cli.py"
 
 
 def test_progress_line_timer_hidden_under_one_second(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     times = iter([100.0, 100.0, 100.4])
-    monkeypatch.setattr("fj_ai.progress.time.monotonic", lambda: next(times))
+    monkeypatch.setattr("flowjet.cli.progress.time.monotonic", lambda: next(times))
     buf = StringIO()
     line = ProgressLine(buf, enabled=True)
     line.update("Reading cli.py", color="yellow")
@@ -520,11 +522,11 @@ def test_progress_line_timer_hidden_under_one_second(
 def test_progress_line_timer_shows_after_one_second(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from fj_ai.progress import _display_width, _line_budget
+    from flowjet.cli.progress import _display_width, _line_budget
 
     monkeypatch.setenv("FJ_PROGRESS_WIDTH", "48")
     clock = {"t": 100.0}
-    monkeypatch.setattr("fj_ai.progress.time.monotonic", lambda: clock["t"])
+    monkeypatch.setattr("flowjet.cli.progress.time.monotonic", lambda: clock["t"])
     buf = StringIO()
     line = ProgressLine(buf, enabled=True)
     line.update("Reading cli.py", color="yellow")

@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from fj_ai.setup_cmd import (
+from flowjet.cli.setup_cmd import (
     DEFAULT_NEW_PROVIDER_NAME,
     DEFAULT_PROVIDER_NAME,
     _parse_model_filter,
@@ -154,7 +154,7 @@ def test_resolve_config_value_missing_env_raises(monkeypatch: pytest.MonkeyPatch
 
 
 def test_fetch_models_invalid_url_raises_runtime_error() -> None:
-    from fj_ai.setup_cmd import fetch_models
+    from flowjet.cli.setup_cmd import fetch_models
 
     with pytest.raises(RuntimeError, match="unknown url type"):
         fetch_models("${DASHSCOPE_BASE_URL}", "sk-test")
@@ -239,13 +239,13 @@ def test_prompt_secret_shows_masked_default(monkeypatch) -> None:  # type: ignor
         seen.append(prompt)
         return ""
 
-    monkeypatch.setattr("fj_ai.setup_cmd._read_secret_masked", fake_read)
+    monkeypatch.setattr("flowjet.cli.setup_cmd._read_secret_masked", fake_read)
     assert _prompt_secret_with_default("API key", "secret-value") == "secret-value"
     assert seen == ["API key [****]: "]
 
 
 def test_prompt_secret_uses_entered_value(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    monkeypatch.setattr("fj_ai.setup_cmd._read_secret_masked", lambda _prompt: "new-key")
+    monkeypatch.setattr("flowjet.cli.setup_cmd._read_secret_masked", lambda _prompt: "new-key")
     assert _prompt_secret_with_default("API key", "old") == "new-key"
 
 
@@ -258,7 +258,7 @@ def test_choose_model_interactive_eof_cancels(monkeypatch) -> None:  # type: ign
 
 
 def test_run_setup_resolves_env_before_fetch(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
-    from fj_ai.setup_cmd import _run_setup
+    from flowjet.cli.setup_cmd import _run_setup
 
     cfg_path = tmp_path / "nano.yml"
     cfg_path.write_text(
@@ -282,7 +282,7 @@ active_router_profile: default
 
     answers = iter(["1", "", "1"])  # provider, endpoint default, model
     monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
-    monkeypatch.setattr("fj_ai.setup_cmd._read_secret_masked", lambda _prompt: "")
+    monkeypatch.setattr("flowjet.cli.setup_cmd._read_secret_masked", lambda _prompt: "")
 
     seen: dict[str, str] = {}
 
@@ -291,7 +291,7 @@ active_router_profile: default
         seen["api_key"] = api_key
         return ["glm-5.2", "qwen3.7-plus"]
 
-    monkeypatch.setattr("fj_ai.setup_cmd.fetch_models", fake_fetch)
+    monkeypatch.setattr("flowjet.cli.setup_cmd.fetch_models", fake_fetch)
     assert _run_setup(str(cfg_path)) == 0
     assert seen == {
         "endpoint": "https://dashscope.example/v1",
@@ -303,11 +303,11 @@ active_router_profile: default
 
 
 def test_run_setup_keyboard_interrupt_is_clean(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
-    from fj_ai.setup_cmd import run_setup
+    from flowjet.cli.setup_cmd import run_setup
 
     def boom(_config_path: str | None = None) -> int:
         raise KeyboardInterrupt
 
-    monkeypatch.setattr("fj_ai.setup_cmd._run_setup", boom)
+    monkeypatch.setattr("flowjet.cli.setup_cmd._run_setup", boom)
     assert run_setup() == 130
     assert "setup cancelled" in capsys.readouterr().err
