@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > History from 0.1.0–0.2.0 below was released as the separate `flowjet-server`
 > distribution, now merged into `flowjet`. See [docs/upgrade.md](docs/upgrade.md).
 
+## [Unreleased]
+
+### Added
+
+- **ACP sessions run in the client's directory.** `FlowJetAcpAgent` now records
+  the `cwd` from `session/new`, `session/load`, `session/resume` and
+  `session/fork` and forwards it as the run's `metadata.workspace`. Previously
+  the client `cwd` was accepted and discarded, so every ACP session ran in a
+  hashed workspace under `FLOWJET_HOME`.
+
+### Changed
+
+- **Workspace resolution is caller-driven by default.**
+  `FLOWJET_ALLOW_EXTERNAL_WORKSPACE` now defaults to `true`, so a workspace
+  outside `FLOWJET_HOME` is honoured rather than rejected. This is not a
+  sandbox escape — tools remain confined to whichever workspace is selected
+  (`allow_paths_outside_workspace` is still `false`); the boundary moves to the
+  caller's directory instead of disappearing. Set
+  `FLOWJET_ALLOW_EXTERNAL_WORKSPACE=false` to restore forced hashed
+  per-session workspaces.
+
 ## [2.0.0] — 2026-09-17 — unified CLI + server
 
 **Breaking.** `flowjet-server` is merged into this repository and ships as one

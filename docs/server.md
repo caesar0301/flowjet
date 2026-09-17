@@ -81,7 +81,7 @@ with client.responses.stream(
 | `FLOWJET_REUSE_RUNNER` | `true` | Reuse agent adapter per worker |
 | `FLOWJET_REQUEST_TIMEOUT` | `0` | Per-run timeout seconds (`0` = none — **set this in production**) |
 | `FLOWJET_READY_TIMEOUT` | `30` | Max wait for post-turn worker ready |
-| `FLOWJET_ALLOW_EXTERNAL_WORKSPACE` | `false` | Allow `metadata.workspace` outside `FLOWJET_HOME` |
+| `FLOWJET_ALLOW_EXTERNAL_WORKSPACE` | `true` | Honour `metadata.workspace` outside `FLOWJET_HOME`; set `false` to force hashed per-session workspaces |
 | `FLOWJET_CORS_ORIGINS` | `*` | Comma-separated browser origins allowed to call the API |
 
 ## Security model
@@ -99,6 +99,13 @@ Notes:
 
 - The server forces `allow_paths_outside_workspace = false` even when the
   loaded `nano.yml` asks for wider access.
+- **The workspace itself is caller-chosen by default.** An ACP client's
+  `session/new` `cwd`, or `metadata.workspace` on an HTTP request, is honoured
+  even outside `FLOWJET_HOME` (`FLOWJET_ALLOW_EXTERNAL_WORKSPACE=true`). That
+  moves the confinement boundary to the caller's directory — it does not
+  remove it: tools still cannot escape the selected workspace. Set
+  `FLOWJET_ALLOW_EXTERNAL_WORKSPACE=false` to reject external paths and force
+  the hashed per-session workspace instead.
 - `FLOWJET_CORS_ORIGINS` defaults to `*` with credentials enabled so browser
   clients work out of the box. Set an explicit origin list in production.
 - `/acp` (WebSocket) is unauthenticated unless `FLOWJET_API_KEY` is set;
@@ -106,11 +113,14 @@ Notes:
 
 ## Concurrency
 
-Each session runs in an isolated workspace under `FLOWJET_HOME` and admits one
-in-flight request at a time; extra requests for the same session queue rather
-than interleave. Requests execute on a persistent thread pool (each worker owns
-an event loop), so long tool calls never block the HTTP loop. Tune with the
-`FLOWJET_THREAD_POOL_*` variables.
+Each session admits one in-flight request at a time; extra requests for the
+same session queue rather than interleave. Requests execute on a persistent
+thread pool (each worker owns an event loop), so long tool calls never block
+the HTTP loop. Tune with the `FLOWJET_THREAD_POOL_*` variables.
+
+The session's workspace is the caller's (`session/new` `cwd`, or
+`metadata.workspace`), falling back to `$FLOWJET_HOME/data/workspaces/ws_<hash>`
+when the caller does not name one.
 
 ## Deploy
 

@@ -39,7 +39,17 @@ class Settings(BaseSettings):
     reuse_runner: bool = True
     request_timeout: float = 0.0
     ready_timeout: float = 30.0
-    allow_external_workspace: bool = False
+    # Workspace resolution is client-driven by default: an ACP client (e.g. a
+    # desktop app) sends the project directory it wants the session to run in,
+    # and `metadata.workspace` is honoured even when it sits outside
+    # FLOWJET_HOME. Set FLOWJET_ALLOW_EXTERNAL_WORKSPACE=false to force every
+    # session into its own hashed workspace under FLOWJET_HOME instead.
+    #
+    # This is not a sandbox escape: tools stay confined to whichever workspace
+    # is selected (SERVER_PROFILE.allow_paths_outside_workspace is False), so
+    # the workspace boundary moves with the caller's choice rather than
+    # disappearing.
+    allow_external_workspace: bool = True
     nano_config: str | None = None
 
     def model_ids(self) -> list[str]:

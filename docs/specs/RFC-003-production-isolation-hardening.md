@@ -3,7 +3,7 @@
 **Status**: Draft  
 **Authors**: FlowJet  
 **Created**: 2026-07-31  
-**Last Updated**: 2026-07-31  
+**Last Updated**: 2026-09-17  
 **Depends on**: [RFC-002](RFC-002-isolated-thread-pool-runtime.md)  
 **Supersedes**: —  
 **Kind**: Architecture Design  
@@ -104,10 +104,16 @@ After each turn’s stream task finishes (success, cancel, error, timeout), canc
 
 ### 5.6 Workspace policy
 
-1. Default hashed path under `$FLOWJET_HOME/data/workspaces/` — unchanged.
+1. Default hashed path under `$FLOWJET_HOME/data/workspaces/` — used when the caller names no workspace.
 2. If `metadata.workspace` is set:
-   - If `FLOWJET_ALLOW_EXTERNAL_WORKSPACE=true` → resolve/create as today.
+   - If `FLOWJET_ALLOW_EXTERNAL_WORKSPACE=true` (**the default**) → resolve/create as today.
    - Else path MUST resolve under `$FLOWJET_HOME` (or equal home); otherwise reject with a clear runtime/OpenAI error (`invalid_workspace`).
+
+   Revised 2026-09-17: the flag's default flipped from `false` to `true` so a
+   desktop ACP client's `session/new` `cwd` is the session workspace without
+   requiring configuration. Tool confinement
+   (`allow_paths_outside_workspace=false`) is unchanged, so the boundary moves
+   to the caller's directory rather than being removed.
 
 ### 5.7 Interaction mode pin
 
@@ -139,7 +145,7 @@ Expose a read-only snapshot: `total`, `idle`, `busy`, `dead`, `requests_complete
 | `FLOWJET_REUSE_RUNNER` | `true` | Reuse adapter per worker |
 | `FLOWJET_REQUEST_TIMEOUT` | `0` | Per-run timeout (s); production SHOULD set |
 | `FLOWJET_READY_TIMEOUT` | `30` | Ready-barrier timeout (s) |
-| `FLOWJET_ALLOW_EXTERNAL_WORKSPACE` | `false` | Allow workspace paths outside `FLOWJET_HOME` |
+| `FLOWJET_ALLOW_EXTERNAL_WORKSPACE` | `true` | Honour workspace paths outside `FLOWJET_HOME` (`false` = force hashed per-session workspaces) |
 
 ---
 

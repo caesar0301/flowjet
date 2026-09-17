@@ -175,3 +175,58 @@ class TestAcpPrompt:
         assert usage["totalTokens"] > 0
         assert usage["inputTokens"] > 0
         assert usage["outputTokens"] > 0
+
+
+class _RecordingBackend(FakeRuntimeBackend):
+    """FakeRuntimeBackend that keeps every RunRequest it is handed."""
+
+    def __init__(self, models: list[str] | None = None) -> None:
+        super().__init__(models=models)
+        self.requests: list = []
+
+    async def stream_run(self, request):  # type: ignore[no-untyped-def]
+        self.requests.append(request)
+        async for event in super().stream_run(request):
+            yield event
+
+
+class TestAcpWorkspace:
+    """The client's cwd must reach the run, not just the ACP handshake.
+
+    This is the integration counterpart to the unit tests in
+    tests/unit/server/test_acp_agent_workspace.py: it proves the SDK actually
+    binds `cwd` from the session/new params onto the agent, which is the step
+    that silently did nothing when the agent ignored the argument.
+    """
+
+    def _run_one_turn(self, cwd: str) -> _RecordingBackend:
+        backend = _RecordingBackend()
+        app = create_app(
+            settings=Settings(api_key=None, models="default"),
+            backend=backend,
+        )
+        with TestClient(app) as client:
+            with client.websocket_connect("/acp") as ws:
+                _initialize(ws)
+                session_id = _new_session(ws, cwd=cwd)
+                ws.send_text(
+                    json.dumps(
+                        {
+                            "jsonrpc": "2.0",
+                            "id": 3,
+                            "method": "session/prompt",
+                            "params": {
+                                "sessionId": session_id,
+                                "prompt": [{"type": "text", "text": "hi"}],
+                            },
+                        }
+                    )
+                )
+                _recv_until(ws, lambda m: m.get("id") == 3)
+        return backend
+
+    def test_session_new_cwd_reaches_the_run_workspace(self):
+        backend = self._run_one_turn("/home/dev/project")
+
+        assert backend.requests, "the prompt never reached the backend"
+        assert backend.requests[-1].metadata["workspace"] == "/home/dev/project"

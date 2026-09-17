@@ -4,6 +4,11 @@ Each ACP connection gets a fresh ``FlowJetAcpAgent`` (via the agent factory).
 The agent maps ACP session lifecycle + ``session/prompt`` calls onto the same
 ``RuntimeBackend.stream_run`` used by the OpenAI-compatible Responses API,
 streaming progress / tool / output events back as ACP session notifications.
+
+The client's working directory is part of the session setup, so it is captured
+on ``session/new`` / ``load`` / ``resume`` / ``fork`` and replayed as
+``RunRequest.metadata["workspace"]`` on each turn — that is what makes an ACP
+session run in the client's project rather than in a hashed workspace.
 """
 
 from __future__ import annotations
@@ -57,14 +62,27 @@ class FlowJetAcpAgent:
     fresh session id and each ``session/prompt`` drives one ``stream_run``.
     Session→thread continuity is delegated to the backend's persistence layer
     (the session id is passed as ``RunRequest.session`` / thread_id).
+
+    The one piece of per-session state kept here is the workspace: ACP carries
+    the client's working directory on the session-setup calls (``session/new``,
+    ``load``, ``resume``, ``fork``) but not on ``session/prompt``, so the cwd is
+    recorded when the session is established and replayed as
+    ``RunRequest.metadata["workspace"]`` on every turn.
     """
 
     def __init__(self, backend: RuntimeBackend, client: Client | None = None) -> None:
         self._backend = backend
         self._client = client
         self._sessions: set[str] = set()
+        # Session id → the cwd the client asked that session to run in.
+        self._session_cwd: dict[str, str] = {}
         # Track active prompt tasks so session/cancel can interrupt them.
         self._active_tasks: dict[str, asyncio.Task[Any]] = {}
+
+    def _remember_cwd(self, session_id: str, cwd: str | None) -> None:
+        """Record the session's workspace, ignoring an absent or blank cwd."""
+        if isinstance(cwd, str) and cwd.strip():
+            self._session_cwd[session_id] = cwd.strip()
 
     # -- ACP Agent protocol ------------------------------------------------
 
@@ -106,6 +124,7 @@ class FlowJetAcpAgent:
 
         session_id = f"acp-{uuid4().hex}"
         self._sessions.add(session_id)
+        self._remember_cwd(session_id, cwd)
         return NewSessionResponse(sessionId=session_id)
 
     async def load_session(
@@ -119,6 +138,7 @@ class FlowJetAcpAgent:
         from acp.schema import LoadSessionResponse
 
         self._sessions.add(session_id)
+        self._remember_cwd(session_id, cwd)
         return LoadSessionResponse()
 
     async def list_sessions(
@@ -159,12 +179,21 @@ class FlowJetAcpAgent:
         models = await self._backend.list_models()
         model = models[0].id if models else "default"
 
+        # The cwd arrives on the session-setup calls, not on session/prompt, so
+        # replay what this session was created with. Without it the backend
+        # falls back to a hashed workspace under FLOWJET_HOME and the client's
+        # project directory never reaches the agent.
+        metadata: dict[str, Any] = {"source": "acp"}
+        session_cwd = self._session_cwd.get(session_id)
+        if session_cwd:
+            metadata["workspace"] = session_cwd
+
         request = RunRequest(
             model=model,
             input_text=input_text,
             session=session_id,
             run_id=f"acp-{uuid4().hex}",
-            metadata={"source": "acp"},
+            metadata=metadata,
         )
 
         output_text = ""
@@ -265,6 +294,7 @@ class FlowJetAcpAgent:
 
         new_id = f"acp-{uuid4().hex}"
         self._sessions.add(new_id)
+        self._remember_cwd(new_id, cwd)
         return ForkSessionResponse(sessionId=new_id)
 
     async def resume_session(
@@ -277,6 +307,8 @@ class FlowJetAcpAgent:
     ) -> Any:
         from acp.schema import ResumeSessionResponse
 
+        self._sessions.add(session_id)
+        self._remember_cwd(session_id, cwd)
         return ResumeSessionResponse()
 
     async def close_session(self, session_id: str, **kwargs: Any) -> Any:
@@ -286,6 +318,7 @@ class FlowJetAcpAgent:
         if task is not None and not task.done():
             task.cancel()
         self._sessions.discard(session_id)
+        self._session_cwd.pop(session_id, None)
         return CloseSessionResponse()
 
     async def cancel(self, session_id: str, **kwargs: Any) -> None:
