@@ -74,9 +74,9 @@ fjf = "flowjet.cli.cli:main_follow"
 flowjet-server = "flowjet.server.__main__:main"
 
 [project.urls]
-Homepage = "https://github.com/caesar0301/flowjet-agent"
-Repository = "https://github.com/caesar0301/flowjet-agent"
-Issues = "https://github.com/caesar0301/flowjet-agent/issues"
+Homepage = "https://github.com/caesar0301/flowjet"
+Repository = "https://github.com/caesar0301/flowjet"
+Issues = "https://github.com/caesar0301/flowjet/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/flowjet"]

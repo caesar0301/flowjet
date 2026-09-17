@@ -10,7 +10,7 @@
 |--------|-------|------|
 | Product brand | **FlowJet** | Human-facing product name |
 | PyPI / `[project].name` | **`flowjet`** | Installable distribution (CLI **and** server) |
-| Source repository | **`flowjet-agent`** | GitHub repo (`caesar0301/flowjet-agent`) |
+| Source repository | **`flowjet`** | GitHub repo (`caesar0301/flowjet`) |
 | Formal CLI | **`flowjet`** | Canonical console entrypoint |
 | CLI alias | **`fj`** | Same as `flowjet` |
 | CLI alias | **`fjf`** | Same as `flowjet -f` / `fj -f` |
@@ -51,7 +51,7 @@ alias packages. Rationale:
 **Cost.** Anyone importing `fj_ai.*` or `flowjet_server.*` must update.
 Migration table: [upgrade.md](upgrade.md).
 
-**Not changed.** The repository name (`flowjet-agent`), the `fj` / `fjf` aliases,
+**Not changed.** The `fj` / `fjf` aliases,
 and the `flowjet-server` console script — so Docker, compose and existing shell
 habits keep working.
 

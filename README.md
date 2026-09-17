@@ -1,161 +1,76 @@
 # FlowJet
 
 [![PyPI version](https://img.shields.io/pypi/v/flowjet.svg)](https://pypi.org/p/flowjet)
-[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/flowjet.svg)](https://pypi.org/p/flowjet)
-[![CI](https://github.com/caesar0301/flowjet-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/caesar0301/flowjet-agent/actions/workflows/ci.yml)
+[![Python versions](https://img.shields.io/pypi/pyversions/flowjet.svg)](https://pypi.org/p/flowjet)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-🎥 [Watch the demo on Vimeo](https://vimeo.com/1211730182)
+**FlowJet** is a coding agent you can run two ways:
 
-**FlowJet** is one agent runtime, two surfaces:
+- **`fj`** — ask a question in your terminal, get an answer. No UI, no context-switching.
+- **`flowjet-server`** — the same agent as a service: **ACP** over WebSocket and an **OpenAI-compatible HTTP API**, so any OpenAI SDK can drive it.
 
-| Surface | Entry point | What it gives you |
-|---------|-------------|-------------------|
-| **Terminal CLI** | `fj` | A friendly one-shot coding agent — ask in plain English, get an answer |
-| **HTTP service** | `flowjet-server` / `fj serve` | **ACP** over WebSocket + an **OpenAI-compatible API** (`/v1/responses`, `/v1/chat/completions`, `/v1/models`) |
-
-Both are the same distribution and the same `flowjet.core` runtime: one nano
-bootstrap, one stream mapper, one `RuntimeEvent` contract. The terminal renders
-those events as a progress line; the server renders them as SSE or ACP updates.
-
-```bash
-# CLI
-fj explain this repo
-fj -f what did we decide last time     # continue the latest conversation
-fjf what did we decide last time       # alias of fj -f
-
-# Server (OpenAI-compatible + ACP)
-flowjet-server                         # or: fj serve --port 8618
-```
-
-It runs on [soothe-nano](https://github.com/mirasoth/soothe-nano) — tools, skills, MCP, subagents, and progressive loading — with SQLite persistence so every conversation is resumable.
-
-> Package: **flowjet** · CLI aliases: `fj`, `fjf` (=`-f`) · Server: `flowjet-server` · Runtime: [soothe-nano](https://github.com/mirasoth/soothe-nano) · Naming details: [docs/naming.md](docs/naming.md)
-
-> **Upgrading from 1.x?** The distribution and all import paths were renamed. See [docs/upgrade.md](docs/upgrade.md).
+It runs on [soothe-nano](https://github.com/mirasoth/soothe-nano) — tools, skills, MCP, subagents — with SQLite persistence, so every conversation is resumable.
 
 ---
 
 ## Install
 
 ```bash
-pip install flowjet            # CLI only (one runtime dependency: soothe-nano)
-pip install 'flowjet[server]'  # + the HTTP service (fastapi, uvicorn, ACP)
-# or
-uv tool install 'flowjet[server]'
+pip install flowjet              # CLI
+pip install 'flowjet[server]'    # CLI + HTTP service
 ```
 
-Requires Python 3.11+. The server half is an optional extra — `fj` never imports
-FastAPI or uvicorn.
+Requires Python 3.11+. The server is an optional extra — installing just `flowjet` pulls a single runtime dependency.
 
 ## Configure
 
-**Option A — Local model (guided setup):**
-
 ```bash
-fj setup
-```
-
-This walks you through an OpenAI-compatible endpoint (Ollama, LM Studio, vLLM, …) and writes the basics to `~/.soothe/config/nano.yml`.
-
-**Option B — Cloud (no config file needed):**
-
-```bash
+fj setup                         # guided: pick a local or hosted model
+# or, with no config file at all:
 export OPENAI_API_KEY=sk-...
 fj summarize README.md
 ```
 
-Without a `nano.yml`, FlowJet falls back to `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`.
+`fj setup` writes `~/.soothe/config/nano.yml`. Without it, FlowJet falls back to `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`.
 
-## Doctor
-
-Check whether your machine is ready to run `fj` (tool binaries, providers, observability):
-
-```bash
-fj doctor                 # quick check
-fj doctor --deep          # thorough check
-fj doctor --live-llm      # actually call the model
-fj doctor --format json   # machine-readable
-```
+Not sure your machine is ready? `fj doctor` (add `--deep`, `--live-llm`).
 
 ---
 
-## Conversations
-
-Threads persist in SQLite, so you can pick up where you left off — continue the latest, jump to a specific one, or list them:
+## CLI
 
 ```bash
-fj -f and now add tests          # continue this project's latest active thread
-fj -t abc123 continue from here  # continue a specific thread
-fj -l                            # list recent threads
-```
-
-`-f` is scoped to the project you are in — the git repo root, or the current directory when it is not a repo — so parallel work in other checkouts never hijacks your thread. `fj -l` still lists every thread; pick one up from anywhere with `-t ID`.
-
-## Flags
-
-```text
-fj [options] [--] <query...>
+fj explain this repo
+fj -f and now add tests          # continue this project's latest conversation
+fjf what did we decide?          # short alias of fj -f
+fj -l                            # list recent conversations
 ```
 
 | Flag | Meaning |
 |------|---------|
-| `-f` / `--follow` | Continue the latest active thread in this project directory |
-| `-t ID` / `--thread` | Continue (or pin) a specific thread (overrides `-f`) |
+| `-f` / `--follow` | Continue the latest thread in this project |
+| `-t ID` / `--thread` | Continue (or pin) a specific thread — overrides `-f` |
 | `-l` / `--list` | List recent threads (newest first) |
 | `-n NUM` | How many threads `-l` shows (`0` = all) |
-| `-c PATH` / `--config` | Use an alternate `nano.yml` |
-| `-w DIR` / `--workspace` | Workspace root |
-| `--no-stream` | Wait for the full answer instead of streaming |
+| `-a` / `--ask` | Read-only: answer without touching files |
 | `-v` / `--verbose` | Mirror tool calls on stderr |
+| `-c PATH` / `-w DIR` | Alternate `nano.yml` / workspace root |
 
-> `-t` and `-f` can be combined; `-t` wins (explicit id overrides follow).
+`-f` is scoped to your current project, so work in other checkouts never hijacks your thread.
 
-Shell completion is AI-assisted — it predicts natural-language intents, not just flags:
+Enable shell completion (predicts full queries, not just flags):
 
 ```bash
-eval "$(fj completion zsh)"     # or: fj completion bash
+eval "$(fj completion zsh)"      # or: fj completion bash
 ```
-
----
-
-## Extend
-
-### Skills
-
-FlowJet ships with AgentSkills (planning, TDD, debugging, document tools, MCP builder, and more). Add your own in `nano.yml`:
-
-```yaml
-skills:
-  - ~/.soothe/skills/my-reviewer
-  - ./skills/deploy
-```
-
-Each skill is a `SKILL.md` with frontmatter; progressive loading keeps the catalog compact and loads skills on demand.
-
-### MCP servers
-
-Connect any Model Context Protocol server:
-
-```yaml
-mcp_servers:
-  - name: filesystem
-    transport: stdio
-    command: npx
-    args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
-```
-
-With `defer: true` (the default), MCP tools activate on demand.
 
 ---
 
 ## Server
 
-Start the service and point any OpenAI-compatible client at it:
-
 ```bash
-flowjet-server                       # defaults: host :: (dual-stack), port 8618
-fj serve --port 8618                 # same thing from the CLI
+flowjet-server                   # host :: (dual-stack), port 8618
+fj serve --port 8618             # same, from the CLI
 ```
 
 ```python
@@ -165,80 +80,57 @@ client = OpenAI(api_key="local", base_url="http://127.0.0.1:8618/v1")
 print(client.responses.create(model="default", input="Hello"))
 ```
 
-| HTTP | Purpose |
-|------|---------|
-| `GET /health` | Liveness + thread-pool metrics |
-| `GET /v1/models` | Logical model ids |
+| Endpoint | Purpose |
+|----------|---------|
 | `POST /v1/responses` | Create a response (`stream=true` → SSE) |
-| `GET` / `DELETE /v1/responses/{id}` | Retrieve / cancel a response |
+| `GET` / `DELETE /v1/responses/{id}` | Retrieve / cancel |
 | `POST /v1/chat/completions` | Chat Completions (non-stream + SSE) |
-| `WS /acp` | Agent Client Protocol (JSON-RPC) |
+| `GET /v1/models` | Model ids |
+| `GET /health` | Liveness |
+| `WS /acp` | Agent Client Protocol |
 
-FlowJet options travel in `extra_body.flowjet`:
+Per-request options go in `extra_body.flowjet`:
 
-| Field | Values | Default | Meaning |
-|-------|--------|---------|---------|
-| `projection` | `report` \| `progress` \| `developer` | `report` | How much SSE detail to expose |
-| `session` | string | new `fj-<uuid>` | Isolates workspace + conversation thread |
-| `interaction_mode` | `agent` \| `ask` | `agent` | `ask` is hard read-only |
-| `metadata` | object | — | Opaque bag forwarded to the runtime |
+| Field | Values | Meaning |
+|-------|--------|---------|
+| `session` | string | Isolates workspace + conversation thread |
+| `interaction_mode` | `agent` (default) \| `ask` | `ask` is hard read-only |
+| `projection` | `report` \| `progress` \| `developer` | How much SSE detail to expose |
 
-### Environment
+Full configuration, environment variables and the security model: [docs/server.md](docs/server.md) · deployment: [deploy/README.md](deploy/README.md).
 
-| Variable | Default | Meaning |
-|----------|---------|---------|
-| `FLOWJET_API_KEY` | unset | If set, require Bearer auth |
-| `FLOWJET_MODELS` | `default` | Comma-separated logical model ids |
-| `FLOWJET_HOST` | `::` | Bind host (dual-stack IPv4/IPv6) |
-| `FLOWJET_PORT` | `8618` | Bind port |
-| `FLOWJET_HOME` | `~/.flowjet` | Root for per-session workspaces |
-| `FLOWJET_NANO_CONFIG` | unset | Optional `nano.yml` (else `$SOOTHE_HOME/config/nano.yml`) |
-| `FLOWJET_THREAD_POOL_MIN` | `2` | Min isolation worker threads |
-| `FLOWJET_THREAD_POOL_MAX` | `8` | Max isolation worker threads |
-| `FLOWJET_THREAD_POOL_IDLE_TIMEOUT` | `300` | Scaled-worker idle exit seconds (`0` = never) |
-| `FLOWJET_MAX_REQUESTS_PER_WORKER` | `100` | Recycle worker after N turns (`0` = unlimited) |
-| `FLOWJET_REUSE_RUNNER` | `true` | Reuse agent adapter per worker |
-| `FLOWJET_REQUEST_TIMEOUT` | `0` | Per-run timeout seconds (`0` = none; set in production) |
-| `FLOWJET_READY_TIMEOUT` | `30` | Max wait for post-turn worker ready |
-| `FLOWJET_ALLOW_EXTERNAL_WORKSPACE` | `false` | Allow `metadata.workspace` outside `FLOWJET_HOME` |
-| `FLOWJET_CORS_ORIGINS` | `*` | Comma-separated browser origins allowed to call the API |
+---
 
-### Security model
+## Extend
 
-The two surfaces have deliberately different invariants (enforced in
-`flowjet.core.modes`, not by whichever module loaded first):
+Add skills and MCP servers in `nano.yml`:
 
-| | CLI | Server |
-|---|---|---|
-| `allow_paths_outside_workspace` | `True` (your machine) | **`False`** (per-request workspace, non-overridable) |
-| `bypass` interaction mode | available | **rejected** — tools must never escape the request workspace |
-| API key | — | optional `FLOWJET_API_KEY` (Bearer, constant-time compare) |
+```yaml
+skills:
+  - ~/.soothe/skills/my-reviewer
 
-`FLOWJET_CORS_ORIGINS` defaults to `*` with credentials enabled so browser
-clients work out of the box; set it to an explicit origin list in production.
+mcp_servers:
+  - name: filesystem
+    transport: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+```
 
-Full protocol reference and deployment guide: [deploy/README.md](deploy/README.md),
-[docs/specs/RFC-001-openai-compatible-api.md](docs/specs/RFC-001-openai-compatible-api.md).
+Skills are `SKILL.md` files loaded on demand; MCP tools activate on demand by default (`defer: true`).
 
 ---
 
 ## Development
 
 ```bash
-git clone https://github.com/caesar0301/flowjet-agent.git
-cd flowjet-agent
-make sync-dev          # dev + server extras
-make test              # unit + integration + server suites
-make test-server       # HTTP/ACP suites only
-make run               # start the server locally
-make lint
+git clone https://github.com/caesar0301/flowjet.git
+cd flowjet
+make sync-dev && make test && make lint
 ```
 
-CI runs format, lint, and tests on Python 3.11–3.13; releases go GitHub Release → PyPI.
+## Upgrading from 1.x
 
-## Powered by
-
-Built on [soothe-nano](https://github.com/mirasoth/soothe-nano). For a full TUI coding agent from the same stack, see [mirasoth/soothe](https://github.com/mirasoth/soothe).
+Version 2.0 merges the former `flowjet-server` project into this one. The distribution is now `flowjet` and import paths changed. See [docs/upgrade.md](docs/upgrade.md).
 
 ## License
 
