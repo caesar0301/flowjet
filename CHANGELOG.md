@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.3] — 2026-09-18
+
+### Added
+
+- **Plan-step and middleware-phase progress in the CLI.** The nano bridge now
+  maps the host (soothe) loop's todo list and middleware phase updates into
+  step/tool progress events, so the terminal shows `Step 2/3 · Create a2.txt`
+  instead of a bare `Working` line. Late-parsing tool args refresh the status
+  line once, and `write_todos` bookkeeping is suppressed as a tool call (it
+  already drives the step line).
+
 ## [2.0.2] — 2026-09-18
 
 ### Added
