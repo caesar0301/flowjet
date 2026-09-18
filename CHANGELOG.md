@@ -10,6 +10,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Duo backends — `soothe` or `soothe-nano`.** `FLOWJET_BACKEND` (CLI, default
+  `soothe`) and `FLOWJET_SERVER_BACKEND` (HTTP/ACP, default `nano`) select which
+  runtime builds the agent. `soothe` is a host layer over soothe-nano, so the
+  engine stays installed either way; the two surfaces switch independently
+  because the server needs a dual-mode agent (AGENT + ASK graphs per request),
+  which soothe does not expose — with `FLOWJET_SERVER_BACKEND=soothe` the server
+  builds one host agent per mode and routes on `interaction_mode`.
+
+### Changed
+
+- The CLI now builds its agent through the `soothe` host runtime by default
+  (host middleware, `request_plan_mode` / `ask_user` tools, configurable
+  persona). Set `FLOWJET_BACKEND=nano` for the previous behaviour.
+
 ## [2.0.1] — 2026-09-17
 
 ### Added

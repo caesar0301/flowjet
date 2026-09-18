@@ -17,10 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:  # pragma: no cover
-    from soothe_nano.config import SootheConfig
+from typing import Any
 
 
 class Surface(StrEnum):
@@ -85,18 +82,38 @@ def require_mode(mode: InteractionMode | str | None, profile: SurfaceProfile) ->
     return resolved.value
 
 
-def apply_profile(config: SootheConfig, profile: SurfaceProfile) -> SootheConfig:
-    """Return a copy of ``config`` with ``profile``'s invariants applied."""
+def apply_profile(
+    config: Any,
+    profile: SurfaceProfile,
+    *,
+    backend: Any | None = None,
+) -> Any:
+    """Return a copy of ``config`` with ``profile``'s invariants applied.
+
+    ``backend`` is a :class:`~flowjet.core.backend.Backend` (resolved from the
+    environment when omitted). It only decides *how* the persona is owned: on
+    ``soothe`` the host config's ``agent.assistant_identity`` becomes the single
+    source of truth instead of FlowJet's fragment override.
+    """
+    from flowjet.core.backend import Backend, resolve_backend
     from flowjet.core.bootstrap import (
         default_core_skill_names,
         register_flowjet_builtin_skills,
     )
-    from flowjet.core.identity import FLOWJET_ASSISTANT_NAME, install_flowjet_identity
+    from flowjet.core.identity import (
+        FLOWJET_ASSISTANT_NAME,
+        configure_soothe_identity,
+        install_flowjet_identity,
+    )
 
     if profile.register_builtin_skills:
         register_flowjet_builtin_skills()
 
     install_flowjet_identity()
+
+    resolved = backend or resolve_backend(profile.surface)
+    if resolved is Backend.SOOTHE:
+        config = configure_soothe_identity(config)
 
     updates: dict[str, Any] = {}
     agent_updates: dict[str, Any] = {}

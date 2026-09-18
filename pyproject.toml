@@ -29,6 +29,9 @@ classifiers = [
 # lives in the `server` extra, and `flowjet.cli` never imports it at module
 # scope (see tests/unit/test_cli_no_server_deps.py).
 dependencies = [
+    # Default CLI runtime (FLOWJET_BACKEND=soothe). soothe is a host layer over
+    # soothe-nano, so nano stays pinned explicitly: soothe only caps it at <2.
+    "soothe>=1.0.12,<2.0.0",
     "soothe-nano>=1.2.28,<1.3.0",
 ]
 

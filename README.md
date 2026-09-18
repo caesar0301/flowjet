@@ -35,6 +35,20 @@ fj summarize README.md
 
 Not sure your machine is ready? `fj doctor` (add `--deep`, `--live-llm`).
 
+### Backends
+
+Two runtimes can build the agent; they are switched independently per surface:
+
+| Env var | Surface | Default | Values |
+|---------|---------|---------|--------|
+| `FLOWJET_BACKEND` | CLI (`fj`) | `soothe` | `soothe`, `nano` |
+| `FLOWJET_SERVER_BACKEND` | `flowjet-server` / `fj serve` | `nano` | `soothe`, `nano` |
+
+`soothe` is the host runtime (extra middleware and tools over the same
+soothe-nano engine). The server defaults to `nano` because it needs a dual-mode
+agent — AGENT and ASK graphs selected per request — which `soothe` does not
+expose yet; on `soothe` the server builds one host agent per mode instead.
+
 ---
 
 ## CLI
