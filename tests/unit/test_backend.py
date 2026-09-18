@@ -99,6 +99,7 @@ def test_profile_backend_follows_the_surface(monkeypatch: pytest.MonkeyPatch) ->
     from flowjet.core.backend import backend_for_profile
 
     monkeypatch.setenv(CLI_BACKEND_ENV, "nano")
+    monkeypatch.setenv(SERVER_BACKEND_ENV, "nano")
     assert backend_for_profile(CLI_PROFILE) is Backend.NANO
     assert backend_for_profile(SERVER_PROFILE) is Backend.NANO
 

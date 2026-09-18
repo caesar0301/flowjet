@@ -136,6 +136,11 @@ def isolated_request() -> IsolatedRunRequest:
 def test_flowjet_forces_workspace_boundary(monkeypatch, tmp_path):
     import soothe_nano
 
+    # This test pins the nano bridge; the server surface is otherwise free to
+    # run on the soothe backend (FLOWJET_SERVER_BACKEND), which builds different
+    # agent objects and would not see the monkeypatch below.
+    monkeypatch.setenv("FLOWJET_SERVER_BACKEND", "nano")
+
     config_path = tmp_path / "nano.yml"
     config_path.write_text(
         "security:\n  allow_paths_outside_workspace: true\n",
