@@ -33,6 +33,161 @@ _SKIP_CUSTOM_TYPES = frozenset(
     }
 )
 
+# Host (soothe) middleware surfaces as ``<Middleware>.<phase>`` graph updates.
+# The CLI renders these through ``friendly_progress``, so the synthetic payloads
+# below stay in the same ``soothe.*`` vocabulary as nano's custom events.
+_HOST_PHASE_EVENTS: dict[str, str] = {
+    "GoalStepGuardMiddleware": "soothe.step.planned",
+    "DecomposeTaskMiddleware": "soothe.step.decomposed",
+    "EvalStepMiddleware": "soothe.step.evaluated",
+    "WestWorldMiddleware": "soothe.step.fanned_out",
+    "AskUserPromptMiddleware": "soothe.ask.requested",
+    "IntakeOnlyTaskGuardMiddleware": "soothe.intake.routed",
+}
+
+# Plan bookkeeping: the todo list already drives the step line.
+_QUIET_TOOLS = frozenset({"write_todos", "todo_write", "write_todo_list"})
+
+# Fires on every turn with no user-visible content.
+_SKIP_UPDATE_NODES = frozenset(
+    {
+        "PatchToolCallsMiddleware",
+        "ProgressiveToolMiddleware",
+        "WorkspaceContextMiddleware",
+        "TodoListMiddleware",
+        "model",
+        "tools",
+    }
+)
+
+
+def todo_step_payload(todos: list[Any]) -> dict[str, Any] | None:
+    """Turn a soothe todo list into a step-progress payload.
+
+    The agent writes its plan as todos (``write_todos``); each ``in_progress``
+    item is the step the user is waiting on, which is far more informative than
+    a generic "Working" line.
+    """
+    items = [item for item in todos if isinstance(item, dict)]
+    if not items:
+        return None
+    total = len(items)
+    done = sum(1 for item in items if str(item.get("status")) == "completed")
+    current = next(
+        (item for item in items if str(item.get("status")) == "in_progress"),
+        None,
+    )
+    if current is None:
+        if done == 0:
+            return None
+        return {
+            "type": "soothe.step.progress",
+            "step": done,
+            "steps": total,
+            "done": done,
+            "status": "completed",
+            "todo": "",
+        }
+    return {
+        "type": "soothe.step.progress",
+        "step": items.index(current) + 1,
+        "steps": total,
+        "done": done,
+        "status": "in_progress",
+        "todo": str(current.get("content") or ""),
+    }
+
+
+def _skill_names(payload: dict[str, Any]) -> list[str]:
+    """Best-effort skill names from a ``SkillActivationMiddleware`` payload."""
+    raw = payload.get("skill_activation")
+    if isinstance(raw, dict):
+        raw = raw.get("skills") or raw.get("activated") or raw.get("names") or []
+    if not isinstance(raw, (list, tuple)):
+        return []
+    names: list[str] = []
+    for item in raw:
+        if isinstance(item, str) and item.strip():
+            names.append(item.strip())
+        elif isinstance(item, dict):
+            name = item.get("name") or item.get("skill")
+            if isinstance(name, str) and name.strip():
+                names.append(name.strip())
+    return names
+
+
+def update_progress(data: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+    """Map one soothe ``updates`` chunk to ``(dedupe_key, event_payload)``.
+
+    Returns ``None`` for the plumbing updates that carry no user-visible step.
+    """
+    todos = data.get("todos")
+    if isinstance(todos, list):
+        payload = todo_step_payload(todos)
+        if payload is not None:
+            key = f"todo:{payload['step']}/{payload['steps']}:{payload['todo']}:{payload['done']}"
+            return key, payload
+
+    for node, node_payload in data.items():
+        name = node.split(".")[0]
+        # The todo list rides along inside the ``tools`` node update.
+        if isinstance(node_payload, dict) and isinstance(node_payload.get("todos"), list):
+            payload = todo_step_payload(node_payload["todos"])
+            if payload is not None:
+                key = (
+                    f"todo:{payload['step']}/{payload['steps']}:{payload['todo']}:{payload['done']}"
+                )
+                return key, payload
+        if name in _SKIP_UPDATE_NODES:
+            continue
+        event = _HOST_PHASE_EVENTS.get(name)
+        if event is not None:
+            phase = node.split(".", 1)[1] if "." in node else ""
+            return node, {"type": event, "middleware": name, "phase": phase}
+        if name == "SkillActivationMiddleware" and isinstance(node_payload, dict):
+            names = _skill_names(node_payload)
+            if names:
+                return node, {"type": "soothe.skill.activated", "skill": ", ".join(names)}
+    return None
+
+
+# Arg keys worth echoing in a one-line tool summary (first match wins).
+_TOOL_SUMMARY_KEYS = (
+    "file_path",
+    "path",
+    "target_file",
+    "command",
+    "cmd",
+    "script",
+    "query",
+    "pattern",
+    "url",
+    "skill",
+)
+
+
+def tool_call_summary(name: str, args: dict[str, Any]) -> str:
+    """``write_file a.txt``-style summary for renderers without tool metadata."""
+    for key in _TOOL_SUMMARY_KEYS:
+        value = args.get(key)
+        if isinstance(value, (str, int, float)) and str(value).strip():
+            text = " ".join(str(value).split())
+            return f"{name} {text[:60]}"
+    return str(name)
+
+
+def step_message(payload: dict[str, Any]) -> str:
+    """Human-readable one-liner for a step payload (used by non-CLI renderers)."""
+    step = payload.get("step")
+    steps = payload.get("steps")
+    todo = str(payload.get("todo") or "").strip()
+    head = f"{step}/{steps}" if step and steps else "step"
+    if todo:
+        return f"Step {head} · {todo}"
+    if payload.get("status") == "completed":
+        return f"Steps complete · {head}"
+    return f"Step {head}"
+
 
 def resolve_interaction_mode(metadata: dict[str, Any] | None) -> str:
     """Return ``agent`` or ``ask`` from request metadata (default ``agent``)."""
@@ -114,6 +269,8 @@ async def iter_nano_runtime_events(
     open_args: dict[str, dict[str, Any]] = {}
     tool_args = ToolCallArgAccumulator()
     emitted_calls: set[str] = set()
+    refreshed_calls: set[str] = set()
+    last_step_key = ""
 
     try:
         async for chunk in agent.astream(
@@ -132,8 +289,23 @@ async def iter_nano_runtime_events(
                     yield mapped
                 continue
 
-            if mode == "updates" and isinstance(data, dict) and "__interrupt__" in data:
-                yield InterruptWaiting(message="Waiting for input…")
+            if mode == "updates" and isinstance(data, dict):
+                if "__interrupt__" in data:
+                    yield InterruptWaiting(message="Waiting for input…")
+                    continue
+                # Plan steps (todos) and host middleware phases are the only
+                # signal soothe gives us about *what* it is doing between tool
+                # calls; surface each change once.
+                step = update_progress(data)
+                if step is not None:
+                    key, payload = step
+                    if key != last_step_key:
+                        last_step_key = key
+                        yield Progress(
+                            stage="Step",
+                            message=step_message(payload),
+                            raw=payload,
+                        )
                 continue
 
             if mode != "messages":
@@ -153,6 +325,22 @@ async def iter_nano_runtime_events(
                         if tc_id in emitted_calls:
                             # Later updates refresh args; the call already started.
                             open_args[tc_id] = args
+                            # Tool args stream as partial JSON, so ToolStarted
+                            # usually carries none — refresh the status line
+                            # once they parse (Writing b1.txt, not Writing).
+                            # Once per call: partial JSON grows on every token,
+                            # and re-emitting it would flood the event stream.
+                            if args and name not in _QUIET_TOOLS and tc_id not in refreshed_calls:
+                                refreshed_calls.add(tc_id)
+                                yield Progress(
+                                    stage="Tool",
+                                    message=tool_call_summary(str(name), args),
+                                    raw={
+                                        "type": "soothe.tool.started",
+                                        "tool": name,
+                                        "args": args,
+                                    },
+                                )
                             continue
                         emitted_calls.add(tc_id)
                         open_tools[tc_id] = str(name)
@@ -197,6 +385,9 @@ async def iter_nano_runtime_events(
                 err_detail = tool_result_error_detail(message_obj.content)
                 ok = status != "error" and err_detail is None
                 detail = simplify_tool_error(err_detail) if err_detail else None
+                if str(name) in _QUIET_TOOLS and ok:
+                    # Plan bookkeeping already surfaced as a step event.
+                    continue
                 yield ToolCompleted(
                     tool=str(name),
                     ok=ok,

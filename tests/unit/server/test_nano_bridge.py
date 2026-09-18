@@ -21,7 +21,7 @@ from flowjet.core.events import (
 
 pytest.importorskip("langchain_core", reason="nano extra not installed")
 
-from langchain_core.messages import AIMessage, ToolMessage  # noqa: E402
+from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage  # noqa: E402
 
 from flowjet.core.backends.isolation.request import IsolatedRunRequest  # noqa: E402
 from flowjet.core.bridges.nano.adapter import (  # noqa: E402
@@ -103,6 +103,173 @@ async def test_pre_tool_narration_is_dropped_and_tools_are_summarised():
 
     # The narration is superseded by the tool call, so it must not reach the client.
     assert all("look that up" not in e.delta for e in events if isinstance(e, OutputTextDelta))
+
+
+def update_chunk(payload: dict[str, Any]) -> tuple[str, str, Any]:
+    return ("ns", "updates", payload)
+
+
+@pytest.mark.asyncio
+async def test_todo_update_becomes_step_progress():
+    """The agent's todo list is the plan the user is waiting on."""
+    todos = [
+        {"content": "Create a1.txt", "status": "completed"},
+        {"content": "Create a2.txt", "status": "in_progress"},
+        {"content": "Create index.md", "status": "pending"},
+    ]
+    events = await collect([update_chunk({"tools": {"todos": todos, "messages": []}})])
+
+    steps = [e for e in events if isinstance(e, Progress)]
+    assert len(steps) == 1
+    assert steps[0].message == "Step 2/3 · Create a2.txt"
+    assert steps[0].raw is not None
+    assert steps[0].raw["type"] == "soothe.step.progress"
+    # raw keeps the payload so the CLI can apply its own label/colour mapping.
+    assert steps[0].raw["todo"] == "Create a2.txt"
+
+
+@pytest.mark.asyncio
+async def test_repeated_identical_todo_updates_emit_once():
+    todos = [{"content": "Write report", "status": "in_progress"}]
+    events = await collect(
+        [
+            update_chunk({"tools": {"todos": todos}}),
+            update_chunk({"tools": {"todos": todos}}),
+        ]
+    )
+
+    assert len([e for e in events if isinstance(e, Progress)]) == 1
+
+
+@pytest.mark.asyncio
+async def test_step_progress_advances_when_the_todo_changes():
+    first = [
+        {"content": "Write report", "status": "in_progress"},
+        {"content": "Review it", "status": "pending"},
+    ]
+    second = [
+        {"content": "Write report", "status": "completed"},
+        {"content": "Review it", "status": "in_progress"},
+    ]
+    events = await collect(
+        [
+            update_chunk({"tools": {"todos": first}}),
+            update_chunk({"tools": {"todos": second}}),
+        ]
+    )
+
+    messages = [e.message for e in events if isinstance(e, Progress)]
+    assert messages == ["Step 1/2 · Write report", "Step 2/2 · Review it"]
+
+
+@pytest.mark.asyncio
+async def test_host_middleware_updates_become_phase_progress():
+    events = await collect(
+        [
+            update_chunk({"DecomposeTaskMiddleware.before_agent": None}),
+            update_chunk({"EvalStepMiddleware.after_model": None}),
+            update_chunk({"AskUserPromptMiddleware.before_model": {"question": "which file?"}}),
+        ]
+    )
+
+    types = [e.raw["type"] for e in events if isinstance(e, Progress) and e.raw]
+    assert types == [
+        "soothe.step.decomposed",
+        "soothe.step.evaluated",
+        "soothe.ask.requested",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_plumbing_updates_are_not_emitted():
+    """Per-turn plumbing would otherwise drown the step and tool lines."""
+    events = await collect(
+        [
+            update_chunk({"PatchToolCallsMiddleware.before_agent": None}),
+            update_chunk({"ProgressiveToolMiddleware.after_model": None}),
+            update_chunk({"TodoListMiddleware.after_model": None}),
+            update_chunk({"model": {"messages": []}}),
+        ]
+    )
+
+    assert [e for e in events if isinstance(e, Progress)] == []
+
+
+@pytest.mark.asyncio
+async def test_skill_activation_update_becomes_skill_progress():
+    events = await collect(
+        [update_chunk({"SkillActivationMiddleware.before_agent": {"skill_activation": ["docs"]}})]
+    )
+
+    steps = [e for e in events if isinstance(e, Progress)]
+    assert len(steps) == 1
+    assert steps[0].raw["type"] == "soothe.skill.activated"
+    assert steps[0].raw["skill"] == "docs"
+
+
+@pytest.mark.asyncio
+async def test_late_tool_args_refresh_the_status_line():
+    """Args stream as partial JSON; surface them once they parse.
+
+    Without the refresh the progress line stays a bare "Writing" for the whole
+    call, which is the least informative moment of a run.
+    """
+    events = await collect(
+        [
+            message_chunk(
+                AIMessageChunk(
+                    content="",
+                    tool_call_chunks=[{"name": "write_file", "args": "", "id": "c1", "index": 0}],
+                )
+            ),
+            message_chunk(
+                AIMessageChunk(
+                    content="",
+                    tool_calls=[{"name": "write_file", "args": {"file_path": "a.txt"}, "id": "c1"}],
+                )
+            ),
+            message_chunk(ToolMessage(content="ok", tool_call_id="c1", name="write_file")),
+        ]
+    )
+
+    started = [e for e in events if isinstance(e, ToolStarted)]
+    assert [e.tool for e in started] == ["write_file"]
+
+    refresh = [
+        e
+        for e in events
+        if isinstance(e, Progress) and (e.raw or {}).get("type") == "soothe.tool.started"
+    ]
+    assert len(refresh) == 1
+    assert refresh[0].raw["args"]["file_path"] == "a.txt"
+
+
+@pytest.mark.asyncio
+async def test_write_todos_is_planning_not_a_tool_call():
+    """Todo bookkeeping would otherwise read as a tool call on every turn."""
+    events = await collect(
+        [
+            message_chunk(
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "write_todos",
+                            "args": {"todos": [{"content": "Do it", "status": "pending"}]},
+                            "id": "c1",
+                            "type": "tool_call",
+                        }
+                    ],
+                )
+            ),
+            message_chunk(ToolMessage(content="updated", tool_call_id="c1", name="write_todos")),
+        ]
+    )
+
+    assert [e.tool for e in events if isinstance(e, ToolCompleted)] == []
+    assert [
+        e for e in events if isinstance(e, Progress) and (e.raw or {}).get("tool") == "write_todos"
+    ] == []
 
 
 @pytest.mark.asyncio

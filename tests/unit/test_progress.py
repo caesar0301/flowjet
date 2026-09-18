@@ -276,6 +276,47 @@ async def test_progress_line_spins_between_updates() -> None:
     assert frames >= 2
 
 
+def test_friendly_step_events() -> None:
+    """Plan steps (todo list) read as 'Step 2/4 · Create a2.txt'."""
+    label, color = friendly_progress(
+        {
+            "type": "soothe.step.progress",
+            "step": 2,
+            "steps": 4,
+            "done": 1,
+            "status": "in_progress",
+            "todo": "Create a2.txt",
+        }
+    )
+    assert label == "Step 2/4 · Create a2.txt"
+    assert color == "blue"
+
+    label, color = friendly_progress(
+        {"type": "soothe.step.progress", "step": 4, "steps": 4, "done": 4, "status": "completed"}
+    )
+    assert label == "Steps complete · 4/4"
+    assert color == "green"
+
+
+def test_friendly_host_phase_events() -> None:
+    """Host (soothe) loop phases get a human label, not a raw action name."""
+    for event_type, expected in (
+        ("soothe.step.planned", "Planning steps"),
+        ("soothe.step.decomposed", "Decomposing task"),
+        ("soothe.step.evaluated", "Evaluating step"),
+        ("soothe.step.fanned_out", "Coordinating agents"),
+    ):
+        label, color = friendly_progress({"type": event_type, "middleware": "x", "phase": "y"})
+        assert label == expected
+        assert color == "blue"
+
+    label, _ = friendly_progress({"type": "soothe.ask.requested", "question": "which file?"})
+    assert "question" in label.lower()
+
+    label, _ = friendly_progress({"type": "soothe.intake.routed", "subagent": "researcher"})
+    assert "researcher" in label
+
+
 def test_friendly_skill_and_error_events() -> None:
     label, color = friendly_progress({"type": "soothe.skill.invoke.started", "skill": "docs"})
     assert "skill" in label.lower()

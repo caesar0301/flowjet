@@ -67,6 +67,14 @@ _ACTION_LABELS: dict[str, str] = {
     "queued": "Queued",
 }
 
+# Host (soothe) loop phases surfaced as graph updates by the nano bridge.
+_STEP_PHASE_LABELS: dict[str, str] = {
+    "planned": "Planning steps",
+    "decomposed": "Decomposing task",
+    "evaluated": "Evaluating step",
+    "fanned_out": "Coordinating agents",
+}
+
 # Verb + color for well-known tools (fallback: Running / yellow)
 _TOOL_VERBS: dict[str, tuple[str, str]] = {
     "read_file": ("Reading", "yellow"),
@@ -692,6 +700,32 @@ def friendly_progress(data: dict[str, Any]) -> tuple[str, str] | None:
             if detail:
                 label = f"{label} · {detail}"
         return _fit(label), color
+
+    if domain == "step":
+        # Plan steps come from the agent's todo list (one event per change).
+        if "steps" in data or "todo" in data:
+            step = data.get("step")
+            steps = data.get("steps")
+            todo = _compact(data.get("todo"))
+            head = f"Step {step}/{steps}" if step and steps else "Step"
+            if todo:
+                return _fit(f"{head} · {todo}"), "blue"
+            if data.get("status") == "completed":
+                return _fit(f"Steps complete · {step}/{steps}"), "green"
+            return _fit(head), "blue"
+        label = _STEP_PHASE_LABELS.get(action) or verb
+        return _fit(label), "blue"
+
+    if event_type == "soothe.ask.requested":
+        question = _compact(data.get("question") or data.get("message"))
+        if question:
+            q_limit = _detail_budget(prefix="Preparing question · ", fraction=0.55, floor=16)
+            return _fit(f"Preparing question · {_truncate_middle(question, q_limit)}"), "magenta"
+        return _fit("Preparing question"), "magenta"
+
+    if event_type == "soothe.intake.routed":
+        name = _compact(data.get("subagent") or data.get("subagent_type") or "specialist")
+        return _fit(f"Routing · {name}"), "magenta"
 
     if domain == "skill" or "skill" in short:
         color = "blue"
