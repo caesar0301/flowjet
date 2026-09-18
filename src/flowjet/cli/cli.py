@@ -8,16 +8,86 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import logging
+import os
 import sys
 from collections.abc import Coroutine
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
 from flowjet.cli import __version__
-from flowjet.cli.agent import configure_cli_logging
 
 FORMAL_CLI = "flowjet"
 CLI_ALIASES = frozenset({"fj", "fjf", FORMAL_CLI})
+
+
+# ---------------------------------------------------------------------------
+# CLI logging — stdlib only, kept here so ``fj -V`` / ``fj -h`` never pay the
+# heavy ``soothe_nano`` / ``flowjet.core.bootstrap`` import cost.
+# ---------------------------------------------------------------------------
+
+_BROWSER_USE_SETUP_LOGGING = "BROWSER_USE_SETUP_LOGGING"
+_FJ_CONSOLE_HANDLER = "fj-console"
+
+
+class _CompactConsoleFormatter(logging.Formatter):
+    """One-line console records without exception tracebacks."""
+
+    def formatException(self, ei: object) -> str:  # noqa: N802 - logging API
+        return ""
+
+    def format(self, record: logging.LogRecord) -> str:
+        # logger.exception sets exc_info; drop it so format() stays one line.
+        record.exc_info = None
+        record.exc_text = None
+        return super().format(record)
+
+
+def configure_cli_logging(*, verbose: bool = False) -> None:
+    """Quiet the console for one-shot CLI use.
+
+    - Opt out of ``browser_use`` import-time root logger setup when unset.
+    - Remove existing root stream handlers (stderr/stdout) so init INFO
+      lines do not interleave with the agent answer.
+    - Prevent ``lastResort`` traceback dumps from soothe tool failures.
+    - When ``verbose``, show WARNING+ as single-line messages on stderr.
+    """
+    os.environ.setdefault(_BROWSER_USE_SETUP_LOGGING, "false")
+    _remove_root_console_handlers()
+    root = logging.getLogger()
+    if verbose:
+        handler = logging.StreamHandler(sys.stderr)
+        handler.set_name(_FJ_CONSOLE_HANDLER)
+        handler.setLevel(logging.WARNING)
+        handler.setFormatter(_CompactConsoleFormatter("%(message)s"))
+        root.addHandler(handler)
+    elif not root.handlers:
+        null = logging.NullHandler()
+        null.set_name(_FJ_CONSOLE_HANDLER)
+        root.addHandler(null)
+    if root.level < logging.WARNING:
+        root.setLevel(logging.WARNING)
+
+
+def silence_after_plugins(*, verbose: bool = False) -> None:
+    """Re-apply quieting after plugin imports (belt-and-suspenders)."""
+    configure_cli_logging(verbose=verbose)
+
+
+def _remove_root_console_handlers() -> None:
+    root = logging.getLogger()
+    for handler in list(root.handlers):
+        if isinstance(handler, RotatingFileHandler):
+            continue
+        if isinstance(handler, logging.FileHandler):
+            continue
+        if isinstance(handler, logging.StreamHandler) or isinstance(handler, logging.NullHandler):
+            root.removeHandler(handler)
+            try:
+                handler.close()
+            except Exception:  # pragma: no cover - defensive
+                pass
 
 
 def resolve_cli_prog(argv0: str | None = None) -> str:
@@ -217,11 +287,38 @@ class _HelpFormatter(argparse.RawDescriptionHelpFormatter):
     def __init__(self, prog: str) -> None:
         super().__init__(prog, max_help_position=26, width=92)
 
+    def _format_action(self, action: argparse.Action) -> str:  # type: ignore[override]
+        # Resolve lazy help strings only when help is actually rendered, so
+        # ``-V`` never pays for the import behind ``_default_config_help``.
+        if isinstance(action.help, _LazyHelp):
+            action.help = str(action.help)
+        return super()._format_action(action)
+
 
 def _default_config_help() -> str:
     from flowjet.cli.agent import default_config_path
 
     return f"Alternate nano.yml (default: {default_config_path()})"
+
+
+class _LazyHelp:
+    """Resolve a help-string callable only when argparse reads it.
+
+    ``-V`` / ``-h``-without-our-flag paths never touch the help text, so the
+    heavy import behind ``_default_config_help`` stays deferred until a flag
+    that actually shows help (``-h``) or errors is invoked.
+    """
+
+    __slots__ = ("_factory", "_cached")
+
+    def __init__(self, factory: Any) -> None:
+        self._factory = factory
+        self._cached: str | None = None
+
+    def __str__(self) -> str:
+        if self._cached is None:
+            self._cached = self._factory()
+        return self._cached
 
 
 def _build_parser(prog: str | None = None) -> argparse.ArgumentParser:
@@ -297,7 +394,7 @@ def _build_parser(prog: str | None = None) -> argparse.ArgumentParser:
         "-c",
         "--config",
         metavar="PATH",
-        help=_default_config_help(),
+        help=_LazyHelp(_default_config_help),
     )
     paths.add_argument(
         "-w",
@@ -324,7 +421,7 @@ def _build_setup_parser(prog: str | None = None) -> argparse.ArgumentParser:
         "-c",
         "--config",
         metavar="PATH",
-        help=_default_config_help(),
+        help=_LazyHelp(_default_config_help),
     )
     return parser
 
@@ -565,8 +662,11 @@ def main_follow(argv: list[str] | None = None) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     try:
-        configure_cli_logging()
+        # Parse first so ``-V`` / ``-h`` / ``--help`` exit before we touch the
+        # logging stack (and the heavy ``flowjet.cli.agent`` import it used to
+        # drag in). Version/help must stay instant.
         args = parse_args(argv)
+        configure_cli_logging()
         # Re-apply after parse so ``-v`` can enable compact console warnings.
         if getattr(args, "verbose", False):
             configure_cli_logging(verbose=True)

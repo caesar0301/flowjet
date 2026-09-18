@@ -8,14 +8,12 @@ Nano bootstrap, config loading and the builtin-skill root now live in
 from __future__ import annotations
 
 import logging
-import os
-import sys
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
 from soothe_nano.config import SootheConfig
 
+from flowjet.cli.cli import _CompactConsoleFormatter
 from flowjet.core.bootstrap import (
     BUILTIN_SKILLS_DIR,
     FJ_CORE_SKILL_NAMES,
@@ -30,6 +28,27 @@ from flowjet.core.bootstrap import (
 from flowjet.core.modes import CLI_PROFILE, apply_profile
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# CLI logging (delegated to ``flowjet.cli.cli`` at call time)
+# ---------------------------------------------------------------------------
+
+
+def configure_cli_logging(*, verbose: bool = False) -> None:
+    """Quiet the console for one-shot CLI use (see ``flowjet.cli.cli``).
+
+    Delegated dynamically so monkeypatching ``flowjet.cli.cli.configure_cli_logging``
+    (as tests do via ``monkeypatch.setattr(cli, ...)``) is honored here too.
+    """
+    from flowjet.cli import cli as _cli
+
+    _cli.configure_cli_logging(verbose=verbose)
+
+
+def silence_after_plugins(*, verbose: bool = False) -> None:
+    """Re-apply quieting after plugin imports (belt-and-suspenders)."""
+    configure_cli_logging(verbose=verbose)
+
 
 # ---------------------------------------------------------------------------
 # Builtin skills (re-exported; owned by flowjet.core.bootstrap)
@@ -55,73 +74,6 @@ def apply_fj_defaults(config: SootheConfig) -> SootheConfig:
     - Core listing = nano defaults + FlowJet workflow skills (rest deferred)
     """
     return apply_profile(config, CLI_PROFILE)
-
-
-# ---------------------------------------------------------------------------
-# CLI logging
-# ---------------------------------------------------------------------------
-
-_BROWSER_USE_SETUP_LOGGING = "BROWSER_USE_SETUP_LOGGING"
-_FJ_CONSOLE_HANDLER = "fj-console"
-
-
-class _CompactConsoleFormatter(logging.Formatter):
-    """One-line console records without exception tracebacks."""
-
-    def formatException(self, ei: object) -> str:  # noqa: N802 - logging API
-        return ""
-
-    def format(self, record: logging.LogRecord) -> str:
-        # logger.exception sets exc_info; drop it so format() stays one line.
-        record.exc_info = None
-        record.exc_text = None
-        return super().format(record)
-
-
-def configure_cli_logging(*, verbose: bool = False) -> None:
-    """Quiet the console for one-shot CLI use.
-
-    - Opt out of ``browser_use`` import-time root logger setup when unset.
-    - Remove existing root stream handlers (stderr/stdout) so init INFO
-      lines do not interleave with the agent answer.
-    - Prevent ``lastResort`` traceback dumps from soothe tool failures.
-    - When ``verbose``, show WARNING+ as single-line messages on stderr.
-    """
-    os.environ.setdefault(_BROWSER_USE_SETUP_LOGGING, "false")
-    _remove_root_console_handlers()
-    root = logging.getLogger()
-    if verbose:
-        handler = logging.StreamHandler(sys.stderr)
-        handler.set_name(_FJ_CONSOLE_HANDLER)
-        handler.setLevel(logging.WARNING)
-        handler.setFormatter(_CompactConsoleFormatter("%(message)s"))
-        root.addHandler(handler)
-    elif not root.handlers:
-        null = logging.NullHandler()
-        null.set_name(_FJ_CONSOLE_HANDLER)
-        root.addHandler(null)
-    if root.level < logging.WARNING:
-        root.setLevel(logging.WARNING)
-
-
-def silence_after_plugins(*, verbose: bool = False) -> None:
-    """Re-apply quieting after plugin imports (belt-and-suspenders)."""
-    configure_cli_logging(verbose=verbose)
-
-
-def _remove_root_console_handlers() -> None:
-    root = logging.getLogger()
-    for handler in list(root.handlers):
-        if isinstance(handler, RotatingFileHandler):
-            continue
-        if isinstance(handler, logging.FileHandler):
-            continue
-        if isinstance(handler, logging.StreamHandler) or isinstance(handler, logging.NullHandler):
-            root.removeHandler(handler)
-            try:
-                handler.close()
-            except Exception:  # pragma: no cover - defensive
-                pass
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +117,7 @@ async def build_agent(
 __all__ = [
     "BUILTIN_SKILLS_DIR",
     "FJ_CORE_SKILL_NAMES",
+    "_CompactConsoleFormatter",
     "apply_fj_defaults",
     "build_agent",
     "configure_cli_logging",
