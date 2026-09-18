@@ -22,15 +22,16 @@ def create_nano_agent_instance(config_path: str | Path | None = None) -> Any:
     :data:`flowjet.core.modes.SERVER_PROFILE`; they are applied by the shared
     bootstrap rather than re-implemented here.
     """
-    from flowjet.core.bootstrap import create_agent, load_config
+    from flowjet.core.backend import resolve_backend
+    from flowjet.core.bootstrap import create_agent, default_config, load_config
+    from flowjet.core.modes import Surface
 
+    backend = resolve_backend(Surface.SERVER)
     try:
-        config = load_config(config_path)
+        config = load_config(config_path, backend=backend)
     except FileNotFoundError:
-        from soothe_nano.config import SootheConfig
-
-        config = SootheConfig()
-    return create_agent(config, SERVER_PROFILE)
+        config = default_config(backend)
+    return create_agent(config, SERVER_PROFILE, backend=backend)
 
 
 class NanoAgentAdapter:

@@ -15,11 +15,28 @@ so this is the single place the persona is decided — a custom
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 #: Assistant name injected as ``{assistant_name}`` when config does not set one.
 FLOWJET_ASSISTANT_NAME = "FlowJet"
+
+#: Persona fields for the ``soothe`` backend, which owns the identity block
+#: through host config (``agent.assistant_identity``) instead of the override
+#: below. Values mirror :data:`FLOWJET_IDENTITY_FRAGMENT`.
+FLOWJET_CREATOR = "Dr. Xiaming Chen"
+FLOWJET_ROLE_DESCRIPTION = "a coding agent"
+FLOWJET_VENDOR_DENYLIST: tuple[str, ...] = (
+    "Soothe",
+    "soothe-nano",
+    "Claude",
+    "ChatGPT",
+    "Gemini",
+    "Anthropic",
+    "OpenAI",
+    "Google",
+)
 
 #: Replacement for ``soothe_nano``'s ``assistant_identity.xml``. Keeps the
 #: ``{assistant_name}`` placeholder so an explicit ``agent.name`` still renames
@@ -67,8 +84,57 @@ def install_flowjet_identity() -> bool:
     return True
 
 
+def configure_soothe_identity(config: Any) -> Any:
+    """Own the persona through soothe's host config, and return the config.
+
+    On the ``soothe`` backend two writers would otherwise race for nano's
+    ``ASSISTANT_IDENTITY_FRAGMENT``: this module's override and
+    ``soothe.identity.persona.apply_identity_fragment_override`` — whichever ran
+    last won. Configuring ``agent.assistant_identity`` and letting soothe render
+    the fragment makes soothe the single writer, and keeps the FlowJet persona
+    (creator, role, vendor denylist) declarative.
+
+    Returns ``config`` unchanged when it is not a host config (no
+    ``agent.assistant_identity`` field) or when soothe is unavailable; the
+    :func:`install_flowjet_identity` override then stays in force.
+    """
+    agent_cfg = getattr(config, "agent", None)
+    if agent_cfg is None or "assistant_identity" not in type(agent_cfg).model_fields:
+        return config
+
+    try:
+        from soothe.config.models import AssistantIdentity
+        from soothe.identity.persona import apply_identity_fragment_override
+    except ImportError:  # pragma: no cover - host runtime missing/too old
+        logger.warning("soothe identity API unavailable; FlowJet keeps the nano fragment override")
+        return config
+
+    # An explicit persona in the user's config wins, same as ``agent.name``.
+    if "assistant_identity" not in getattr(agent_cfg, "model_fields_set", frozenset()):
+        config = config.model_copy(
+            update={
+                "agent": agent_cfg.model_copy(
+                    update={
+                        "assistant_identity": AssistantIdentity(
+                            creator=FLOWJET_CREATOR,
+                            role_description=FLOWJET_ROLE_DESCRIPTION,
+                            vendor_denylist=list(FLOWJET_VENDOR_DENYLIST),
+                        )
+                    }
+                )
+            }
+        )
+
+    apply_identity_fragment_override(config)
+    return config
+
+
 __all__ = [
     "FLOWJET_ASSISTANT_NAME",
+    "FLOWJET_CREATOR",
     "FLOWJET_IDENTITY_FRAGMENT",
+    "FLOWJET_ROLE_DESCRIPTION",
+    "FLOWJET_VENDOR_DENYLIST",
+    "configure_soothe_identity",
     "install_flowjet_identity",
 ]
