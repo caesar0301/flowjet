@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.5] — 2026-09-20
+
 ### Changed
 
 - **Config moved off `~/.soothe` — `FLOWJET_HOME` is now the authority.**
@@ -28,6 +30,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   typed model id. The provider and router profile are still written, so a config
   can be initialised before the model server is running; the run ends with a note
   to re-check via `fj doctor`.
+
+## [2.0.4] — 2026-09-19
+
+### Fixed
+
+- **`fj -V` is instant (1.78s → 0.06s).** It paid the full `soothe_nano` +
+  `flowjet.core.bootstrap` import cost on every invocation just to print a
+  version string. The stdlib-only logging helpers moved out of `agent.py` into
+  `cli.py`, `main()` parses args before setting up logging so `-V`/`-h` exit
+  first, and the `-c/--config` help text now resolves lazily.
+  (`agent.py` keeps thin delegation wrappers, so existing imports and
+  monkeypatching are unaffected.)
 
 ## [2.0.3] — 2026-09-18
 
