@@ -18,7 +18,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from soothe_nano.config import SOOTHE_HOME, SootheConfig
+from soothe_nano.config import SootheConfig
 from soothe_nano.resolve import resolve_checkpointer
 
 from flowjet.core.backend import Backend, resolve_backend
@@ -29,6 +29,8 @@ from flowjet.core.modes import (
     SurfaceProfile,
     require_mode,
 )
+from flowjet.home import default_config_path as _flowjet_config_path
+from flowjet.home import ensure_flowjet_config
 
 logger = logging.getLogger(__name__)
 
@@ -75,8 +77,8 @@ def register_flowjet_builtin_skills() -> None:
 
 
 def default_config_path() -> Path:
-    """Return ``~/.soothe/config/nano.yml`` (respects ``SOOTHE_HOME``)."""
-    return SOOTHE_HOME / "config" / "nano.yml"
+    """Return ``$FLOWJET_HOME/config/nano.yml`` (default ``~/.flowjet/config/nano.yml``)."""
+    return _flowjet_config_path()
 
 
 def load_config(
@@ -93,14 +95,21 @@ def load_config(
 
     Resolution order:
     1. Explicit ``config_path``
-    2. ``SOOTHE_HOME / config / nano.yml`` (default ``~/.soothe/config/nano.yml``)
+    2. ``$FLOWJET_HOME / config / nano.yml`` (default ``~/.flowjet/config/nano.yml``)
     3. Zero-config ``SootheConfig()`` from ``OPENAI_API_KEY`` / ``ANTHROPIC_API_KEY``
 
     On the ``soothe`` backend, a sibling ``soothe.yml`` (host-owned keys) is
     composed over ``nano.yml`` when present.
+
+    Without an explicit ``config_path``, a config found in ``~/.soothe/config`` is
+    copied into the flowjet home first — see :func:`flowjet.home.ensure_flowjet_config`.
     """
     backend = backend or resolve_backend(Surface.CLI)
-    path = Path(config_path).expanduser() if config_path else default_config_path()
+    if config_path is None:
+        ensure_flowjet_config()
+        path = default_config_path()
+    else:
+        path = Path(config_path).expanduser()
     if path.is_file():
         return _load_config_file(path, backend)
     if config_path is not None:

@@ -62,6 +62,7 @@ LABEL org.opencontainers.image.title="FlowJet Server" \
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     SOOTHE_HOME=/var/lib/soothe \
+    FLOWJET_HOME=/var/lib/soothe \
     FLOWJET_HOST=0.0.0.0 \
     FLOWJET_PORT=8618
 
@@ -70,7 +71,7 @@ WORKDIR /app
 COPY --from=deps /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:${PATH}"
 
-# Default nano config (from soothe config/develop/nano.yml)
+# Default nano config, read by the service from $FLOWJET_HOME/config/nano.yml.
 RUN mkdir -p /var/lib/soothe/config
 COPY config/nano.yml /var/lib/soothe/config/nano.yml
 

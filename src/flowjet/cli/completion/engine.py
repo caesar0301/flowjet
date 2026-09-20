@@ -419,13 +419,14 @@ def _split_complete_argv(raw: list[str]) -> tuple[list[str], list[str]]:
 def run_complete(argv: list[str] | None = None) -> int:
     """Hidden shell protocol: print one candidate per stdout line."""
     from flowjet.cli.cli import resolve_cli_prog
+    from flowjet.home import default_config_path
 
     parser = argparse.ArgumentParser(prog=f"{resolve_cli_prog()} __complete", add_help=True)
     parser.add_argument(
         "-c",
         "--config",
         metavar="PATH",
-        help="nano.yml path (default: ~/.soothe/config/nano.yml)",
+        help=f"nano.yml path (default: {default_config_path()})",
     )
     parser.add_argument(
         "--no-llm",

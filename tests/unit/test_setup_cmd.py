@@ -311,3 +311,165 @@ def test_run_setup_keyboard_interrupt_is_clean(monkeypatch, capsys) -> None:  # 
     monkeypatch.setattr("flowjet.cli.setup_cmd._run_setup", boom)
     assert run_setup() == 130
     assert "setup cancelled" in capsys.readouterr().err
+
+
+def test_prompt_model_with_fallback_accepts_typed_name(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from flowjet.cli.setup_cmd import _prompt_model_with_fallback
+
+    monkeypatch.setattr("builtins.input", lambda _prompt: "custom-model")
+    assert _prompt_model_with_fallback([]) == "custom-model"
+
+
+def test_prompt_model_with_fallback_uses_default_on_empty(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from flowjet.cli.setup_cmd import _prompt_model_with_fallback
+
+    monkeypatch.setattr("builtins.input", lambda _prompt: "")
+    assert _prompt_model_with_fallback(["llama3.2"]) == "llama3.2"
+    assert _prompt_model_with_fallback([]) == "llama3.2"
+
+
+def test_prompt_model_with_fallback_selects_candidate_number(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from flowjet.cli.setup_cmd import _prompt_model_with_fallback
+
+    answers = iter(["5", "2"])
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
+    assert _prompt_model_with_fallback(["a", "b"]) == "b"
+
+
+def test_run_setup_endpoint_down_warns_and_saves(monkeypatch, tmp_path, capsys) -> None:  # type: ignore[no-untyped-def]
+    from flowjet.cli.setup_cmd import _run_setup
+
+    cfg_path = tmp_path / "nano.yml"
+    answers = iter(["", "", "custom-model"])  # provider name, endpoint, model
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
+    monkeypatch.setattr("flowjet.cli.setup_cmd._read_secret_masked", lambda _prompt: "")
+
+    def boom(endpoint: str, api_key: str, timeout_s: float = 15.0) -> list[str]:
+        raise RuntimeError(f"{endpoint}/models -> [Errno 61] Connection refused")
+
+    monkeypatch.setattr("flowjet.cli.setup_cmd.fetch_models", boom)
+
+    assert _run_setup(str(cfg_path)) == 0
+    err = capsys.readouterr().err
+    assert "warning: could not list models" in err
+    assert "Connection refused" in err
+
+    saved = cfg_path.read_text(encoding="utf-8")
+    assert "custom-model" in saved
+    assert "flowjet-default:custom-model" in saved
+
+
+def test_run_setup_endpoint_down_offers_saved_models(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    from flowjet.cli.setup_cmd import _run_setup
+
+    cfg_path = tmp_path / "nano.yml"
+    cfg_path.write_text(
+        """
+providers:
+  - name: omlx
+    provider_type: openai
+    api_base_url: "http://localhost:9642/v1"
+    api_key: ""
+    models: [DeepSeek-V4-Flash-2bit-DQ]
+router_profiles:
+  - name: default
+    router:
+      default: "omlx:DeepSeek-V4-Flash-2bit-DQ"
+active_router_profile: default
+""",
+        encoding="utf-8",
+    )
+    answers = iter(["1", "", "1"])  # provider, endpoint default, saved model
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
+    monkeypatch.setattr("flowjet.cli.setup_cmd._read_secret_masked", lambda _prompt: "")
+
+    def boom(endpoint: str, api_key: str, timeout_s: float = 15.0) -> list[str]:
+        raise RuntimeError(f"{endpoint}/models -> [Errno 61] Connection refused")
+
+    monkeypatch.setattr("flowjet.cli.setup_cmd.fetch_models", boom)
+
+    assert _run_setup(str(cfg_path)) == 0
+    saved = cfg_path.read_text(encoding="utf-8")
+    assert "omlx:DeepSeek-V4-Flash-2bit-DQ" in saved
+
+
+def test_run_setup_empty_model_list_warns_and_prompts(monkeypatch, tmp_path, capsys) -> None:  # type: ignore[no-untyped-def]
+    from flowjet.cli.setup_cmd import _run_setup
+
+    cfg_path = tmp_path / "nano.yml"
+    answers = iter(["", "", "typed-model"])
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
+    monkeypatch.setattr("flowjet.cli.setup_cmd._read_secret_masked", lambda _prompt: "")
+    monkeypatch.setattr("flowjet.cli.setup_cmd.fetch_models", lambda *a, **k: [])
+
+    assert _run_setup(str(cfg_path)) == 0
+    assert "returned no models" in capsys.readouterr().err
+    assert "typed-model" in cfg_path.read_text(encoding="utf-8")
+
+
+def test_run_setup_targets_flowjet_home_not_soothe_home(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Config belongs to ``$FLOWJET_HOME/config/nano.yml``, never ``~/.soothe``.
+
+    ``SOOTHE_HOME`` holds CLI data; it must not decide where flowjet reads and
+    writes its config.
+    """
+    import flowjet.home as home_mod
+    from flowjet.cli.setup_cmd import _run_setup
+
+    flowjet_home = tmp_path / "flowjet"
+    soothe_home = tmp_path / "soothe"
+    monkeypatch.setenv("FLOWJET_HOME", str(flowjet_home))
+    monkeypatch.setenv("SOOTHE_HOME", str(soothe_home))
+    # Never read a developer's real ~/.soothe config during tests.
+    monkeypatch.setattr(home_mod, "legacy_soothe_home", lambda: tmp_path / "no-legacy-soothe")
+
+    answers = iter(["", "", "1"])  # provider name, endpoint default, model
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
+    monkeypatch.setattr("flowjet.cli.setup_cmd._read_secret_masked", lambda _prompt: "")
+    monkeypatch.setattr("flowjet.cli.setup_cmd.fetch_models", lambda *a, **k: ["llama3.2"])
+
+    assert _run_setup(None) == 0
+    assert (flowjet_home / "config" / "nano.yml").is_file()
+    assert not (soothe_home / "config").exists()
+
+
+def test_run_setup_migrates_legacy_soothe_config(monkeypatch, tmp_path, capsys) -> None:  # type: ignore[no-untyped-def]
+    """A config in ``~/.soothe`` is copied in, so its providers are offered."""
+    import flowjet.home as home_mod
+    from flowjet.cli.setup_cmd import _run_setup
+
+    legacy = tmp_path / "soothe"
+    (legacy / "config").mkdir(parents=True)
+    (legacy / "config" / "nano.yml").write_text(
+        """
+providers:
+  - name: omlx
+    provider_type: openai
+    api_base_url: "http://localhost:9642/v1"
+    api_key: ""
+    models: [DeepSeek-V4-Flash-2bit-DQ]
+router_profiles:
+  - name: default
+    router:
+      default: "omlx:DeepSeek-V4-Flash-2bit-DQ"
+active_router_profile: default
+""",
+        encoding="utf-8",
+    )
+    flowjet_home = tmp_path / "flowjet"
+    monkeypatch.setenv("FLOWJET_HOME", str(flowjet_home))
+    monkeypatch.setattr(home_mod, "legacy_soothe_home", lambda: legacy)
+
+    answers = iter(["1", "", "1"])  # provider, endpoint default, migrated model
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
+    monkeypatch.setattr("flowjet.cli.setup_cmd._read_secret_masked", lambda _prompt: "")
+    monkeypatch.setattr("flowjet.cli.setup_cmd.fetch_models", lambda *a, **k: [])
+
+    assert _run_setup(None) == 0
+    err = capsys.readouterr().err
+    assert "Copied nano.yml" in err
+    # Migration is non-destructive.
+    assert (legacy / "config" / "nano.yml").is_file()
+
+    saved = (flowjet_home / "config" / "nano.yml").read_text(encoding="utf-8")
+    assert "omlx:DeepSeek-V4-Flash-2bit-DQ" in saved

@@ -10,6 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Config moved off `~/.soothe` — `FLOWJET_HOME` is now the authority.**
+  The config file resolves to `$FLOWJET_HOME/config/nano.yml` (default
+  `~/.flowjet/config/nano.yml`) instead of `$SOOTHE_HOME/config/nano.yml`, so an
+  exported `SOOTHE_HOME` can no longer drag flowjet back onto `~/.soothe`.
+  `SOOTHE_HOME` itself is left untouched: CLI data (thread pins, locks,
+  completion history), logs, agents, plugins and the sqlite databases still live
+  there. Upgrades keep working — an existing `~/.soothe/config/nano.yml` (plus a
+  sibling `soothe.yml`) is copied into `$FLOWJET_HOME/config/` **once**, on first
+  run, and the originals are left in place, so the move is reversible.
+- **`fj setup` no longer aborts when the LLM endpoint is unreachable.** A failed
+  or empty `/models` probe (connection refused, HTTP error, unresolved
+  `${ENV_VAR}`) now prints a `warning:` and falls through to manual model entry
+  — offering the models already saved for the selected provider, or accepting a
+  typed model id. The provider and router profile are still written, so a config
+  can be initialised before the model server is running; the run ends with a note
+  to re-check via `fj doctor`.
+
 ## [2.0.3] — 2026-09-18
 
 ### Added

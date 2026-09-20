@@ -35,7 +35,8 @@ make examples-e2e
 ```
 
 The server uses soothe-nano with thread-pool isolation. Nano loads
-`~/.soothe/config/nano.yml` (or `FLOWJET_NANO_CONFIG`) and its active router profile.
+`$FLOWJET_HOME/config/nano.yml` (default `~/.flowjet/config/nano.yml`, or
+`FLOWJET_NANO_CONFIG`) and its active router profile.
 
 ## Environment
 

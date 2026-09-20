@@ -296,7 +296,7 @@ class _HelpFormatter(argparse.RawDescriptionHelpFormatter):
 
 
 def _default_config_help() -> str:
-    from flowjet.cli.agent import default_config_path
+    from flowjet.home import default_config_path
 
     return f"Alternate nano.yml (default: {default_config_path()})"
 

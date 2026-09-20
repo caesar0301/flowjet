@@ -31,7 +31,7 @@ export OPENAI_API_KEY=sk-...
 fj summarize README.md
 ```
 
-`fj setup` writes `~/.soothe/config/nano.yml`. Without it, FlowJet falls back to `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`.
+`fj setup` writes `$FLOWJET_HOME/config/nano.yml` (default `~/.flowjet/config/nano.yml`). Without it, FlowJet falls back to `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`.
 
 Not sure your machine is ready? `fj doctor` (add `--deep`, `--live-llm`).
 

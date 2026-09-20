@@ -46,8 +46,8 @@ REFERENCE_SKILLS: tuple[dict[str, Any], ...] = (
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    from flowjet.cli.agent import default_config_path
     from flowjet.cli.cli import resolve_cli_prog
+    from flowjet.home import default_config_path
 
     parser = argparse.ArgumentParser(
         prog=f"{resolve_cli_prog()} doctor",

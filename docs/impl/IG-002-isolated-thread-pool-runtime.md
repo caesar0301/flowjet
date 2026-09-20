@@ -193,8 +193,8 @@ graph; abnormal turns recycle it before the worker is made available.
 
 | Env | Settings field | Default |
 |-----|----------------|---------|
-| `FLOWJET_HOME` | `home` | `~/.flowjet` |
-| `FLOWJET_NANO_CONFIG` | `nano_config` | unset → `$SOOTHE_HOME/config/nano.yml` |
+| `FLOWJET_HOME` | `home` | `~/.flowjet` (config file + workspaces) |
+| `FLOWJET_NANO_CONFIG` | `nano_config` | unset → `$FLOWJET_HOME/config/nano.yml` |
 | `FLOWJET_THREAD_POOL_MIN` | `thread_pool_min` | `2` |
 | `FLOWJET_THREAD_POOL_MAX` | `thread_pool_max` | `8` |
 | `FLOWJET_THREAD_POOL_IDLE_TIMEOUT` | `thread_pool_idle_timeout` | `300` |

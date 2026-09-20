@@ -25,11 +25,20 @@ import pytest
 
 @pytest.fixture
 def soothe_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Isolate ``SOOTHE_HOME`` so pin/reset/lock/history never touch the real home."""
+    """Isolate the home dirs so pin/reset/lock/history/config never touch the real ones.
+
+    ``SOOTHE_HOME`` holds CLI data and ``FLOWJET_HOME`` holds the config file
+    (``flowjet.home``); both point at the same tmp dir so either spelling of
+    "the home" resolves inside the sandbox.
+    """
     home = tmp_path / ".soothe"
     (home / "data").mkdir(parents=True)
     (home / "config").mkdir(parents=True)
     monkeypatch.setenv("SOOTHE_HOME", str(home))
+    monkeypatch.setenv("FLOWJET_HOME", str(home))
+    # ``load_config`` copies ``~/.soothe/config`` into FLOWJET_HOME by default; point
+    # it at nothing so a real config never leaks into the sandbox.
+    monkeypatch.setattr("flowjet.home.legacy_soothe_home", lambda: tmp_path / "no-legacy-soothe")
     # Avoid inheriting cloud keys that would change zero-config load_config behavior.
     for key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "DASHSCOPE_API_KEY"):
         monkeypatch.delenv(key, raising=False)

@@ -21,7 +21,7 @@ except ImportError:  # pragma: no cover - Windows
 import yaml
 from soothe_nano.config import _ENV_VAR_RE, _resolve_env
 
-from flowjet.cli.agent import default_config_path
+from flowjet.home import default_config_path, ensure_flowjet_config
 
 DEFAULT_PROVIDER_NAME = "local"
 DEFAULT_NEW_PROVIDER_NAME = "flowjet-default"
@@ -65,6 +65,10 @@ def run_setup(config_path: str | None = None) -> int:
 
 def _run_setup(config_path: str | None = None) -> int:
     path = Path(config_path).expanduser() if config_path else default_config_path()
+    if config_path is None:
+        # ``fj setup`` bypasses ``load_config``, so it pulls in a ``~/.soothe/config``
+        # copy itself before reading the provider list.
+        ensure_flowjet_config()
     existing = _load_existing_config(path)
     providers = _list_providers(existing)
     _, seed_model = _seed_from_config(existing)
@@ -100,27 +104,39 @@ def _run_setup(config_path: str | None = None) -> int:
     api_key = _prompt_secret_with_default("API key", api_key_default)
 
     sys.stdout.write("Fetching available models...\n")
+    models: list[str] = []
+    fetch_issue: str | None = None
     try:
         resolved_endpoint = resolve_config_value(endpoint, field="API endpoint")
         resolved_api_key = resolve_config_value(api_key, field="API key")
-        models = fetch_models(resolved_endpoint, resolved_api_key)
     except RuntimeError as exc:
-        sys.stderr.write(f"error: {exc}\n")
-        return 1
+        fetch_issue = str(exc)
+    else:
+        try:
+            models = fetch_models(resolved_endpoint, resolved_api_key)
+        except RuntimeError as exc:
+            fetch_issue = str(exc)
+        if not models and fetch_issue is None:
+            fetch_issue = f"{resolved_endpoint} returned no models"
 
-    if not models:
-        sys.stderr.write("error: no models returned by endpoint\n")
-        return 1
+    if fetch_issue:
+        # An unreachable endpoint is not fatal: save the provider anyway so the
+        # user can start the model server later and pick a model by hand now.
+        sys.stderr.write(f"warning: could not list models ({fetch_issue})\n")
+        sys.stderr.write("warning: continuing without a model list\n")
 
-    preferred = seed_model
-    if selected:
-        selected_models = selected.get("models")
-        if isinstance(selected_models, list) and selected_models:
-            preferred = str(selected_models[0])
-    if preferred and preferred in models:
-        models = [preferred] + [m for m in models if m != preferred]
+    if models:
+        preferred = seed_model
+        if selected:
+            selected_models = selected.get("models")
+            if isinstance(selected_models, list) and selected_models:
+                preferred = str(selected_models[0])
+        if preferred and preferred in models:
+            models = [preferred] + [m for m in models if m != preferred]
+        model = choose_model_interactive(models)
+    else:
+        model = _prompt_model_with_fallback(_fallback_model_candidates(selected, seed_model))
 
-    model = choose_model_interactive(models)
     if not model:
         sys.stderr.write("setup cancelled\n")
         return 1
@@ -139,6 +155,10 @@ def _run_setup(config_path: str | None = None) -> int:
     sys.stdout.write(f"Saved config to: {path}\n")
     sys.stdout.write(f"Active profile: {profile}\n")
     sys.stdout.write(f"Configured model: {provider_name}:{model}\n")
+    if fetch_issue:
+        sys.stdout.write(
+            "Note: model list was not verified; start the endpoint and run 'fj doctor' to confirm.\n"
+        )
     return 0
 
 
@@ -462,6 +482,45 @@ def _parse_model_filter(choice: str) -> str:
         if raw.startswith(prefix):
             return raw[len(prefix) :].strip()
     return raw
+
+
+def _fallback_model_candidates(selected: dict[str, Any], seed_model: str | None) -> list[str]:
+    """Models already known from config, used when the endpoint cannot be queried."""
+    candidates: list[str] = []
+    if selected:
+        models = selected.get("models")
+        if isinstance(models, list):
+            candidates.extend(str(item) for item in models if str(item).strip())
+    if seed_model and seed_model not in candidates:
+        candidates.insert(0, seed_model)
+    return candidates
+
+
+def _prompt_model_with_fallback(candidates: list[str]) -> str | None:
+    """Ask for a model id directly when the endpoint has no model list to pick from."""
+    default = candidates[0] if candidates else DEFAULT_MODEL
+    if candidates:
+        sys.stdout.write("Models saved for this provider:\n")
+        for idx, name in enumerate(candidates, start=1):
+            sys.stdout.write(f"  {idx}. {name}\n")
+        label = f"Model name or number 1-{len(candidates)}"
+    else:
+        label = "Model name"
+
+    while True:
+        try:
+            value = input(f"{label} [{default}]: ").strip()
+        except EOFError:
+            return default
+        if not value:
+            return default
+        if value.isdigit() and candidates:
+            idx = int(value)
+            if 1 <= idx <= len(candidates):
+                return candidates[idx - 1]
+            sys.stdout.write(f"Invalid number; enter 1-{len(candidates)} or a model name.\n")
+            continue
+        return value
 
 
 def _load_existing_config(path: Path) -> dict[str, Any]:

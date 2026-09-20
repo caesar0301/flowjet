@@ -72,8 +72,8 @@ with client.responses.stream(
 | `FLOWJET_MODELS` | `default` | Comma-separated logical model ids |
 | `FLOWJET_HOST` | `::` | Bind host (dual-stack IPv4/IPv6) |
 | `FLOWJET_PORT` | `8618` | Bind port |
-| `FLOWJET_HOME` | `~/.flowjet` | Root for per-session workspaces |
-| `FLOWJET_NANO_CONFIG` | unset | Optional `nano.yml` (else `$SOOTHE_HOME/config/nano.yml`) |
+| `FLOWJET_HOME` | `~/.flowjet` | Root for the config file (`$FLOWJET_HOME/config/nano.yml`) and per-session workspaces |
+| `FLOWJET_NANO_CONFIG` | unset | Optional `nano.yml` (else `$FLOWJET_HOME/config/nano.yml`) |
 | `FLOWJET_THREAD_POOL_MIN` | `2` | Min isolation worker threads |
 | `FLOWJET_THREAD_POOL_MAX` | `8` | Max isolation worker threads |
 | `FLOWJET_THREAD_POOL_IDLE_TIMEOUT` | `300` | Scaled-worker idle exit seconds (`0` = never) |

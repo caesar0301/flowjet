@@ -16,11 +16,24 @@ def test_default_config_path_ends_with_nano_yml() -> None:
     assert path.parts[-2] == "config"
 
 
-def test_default_config_path_uses_soothe_home(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_default_config_path_uses_flowjet_home(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     import flowjet.core.bootstrap as config_mod
 
-    monkeypatch.setattr(config_mod, "SOOTHE_HOME", Path("/tmp/custom-soothe"))
-    assert config_mod.default_config_path() == Path("/tmp/custom-soothe/config/nano.yml")
+    monkeypatch.setenv("FLOWJET_HOME", str(tmp_path))
+    assert config_mod.default_config_path() == tmp_path / "config" / "nano.yml"
+
+
+def test_default_config_path_is_not_soothe_home(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """FLOWJET_HOME owns the config file; SOOTHE_HOME must not redirect it."""
+    import flowjet.core.bootstrap as config_mod
+
+    monkeypatch.setenv("FLOWJET_HOME", str(tmp_path / "flowjet"))
+    monkeypatch.setenv("SOOTHE_HOME", str(tmp_path / "soothe"))
+    assert config_mod.default_config_path() == tmp_path / "flowjet" / "config" / "nano.yml"
 
 
 def test_load_config_missing_explicit_raises(tmp_path: Path) -> None:
