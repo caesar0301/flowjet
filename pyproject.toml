@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "flowjet"
-version = "2.0.5"
+version = "2.0.6"
 description = "FlowJet — agent CLI (fj) and server (ACP + OpenAI-compatible HTTP) powered by soothe-nano"
 readme = "README.md"
 license = { text = "MIT" }
@@ -31,8 +31,8 @@ classifiers = [
 dependencies = [
     # Default CLI runtime (FLOWJET_BACKEND=soothe). soothe is a host layer over
     # soothe-nano, so nano stays pinned explicitly: soothe only caps it at <2.
-    "soothe>=1.0.12,<2.0.0",
-    "soothe-nano>=1.2.28,<1.3.0",
+    "soothe>=1.0.14,<2.0.0",
+    "soothe-nano>=1.3.0,<1.4.0",
 ]
 
 [project.optional-dependencies]

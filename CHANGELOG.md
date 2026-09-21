@@ -10,6 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.6] — 2026-09-21
+
+### Changed
+
+- **Bump soothe runtime to the latest.** `soothe` `1.0.12 → 1.0.14` and
+  `soothe-nano` `1.2.28 → 1.3.0`. The `<1.3.0` cap on `soothe-nano` was lifted
+  to `<1.4.0` because `soothe 1.0.14` now requires `soothe-nano>=1.3.0`. The
+  upgrade adds one transitive dependency, `langchain-typesafe`. All FlowJet
+  import paths into soothe/soothe-nano (`SootheConfig`, `create_nano_agent`,
+  `create_dual_mode_nano_agent`, `create_soothe_agent`, `resolve_checkpointer`,
+  `register_builtin_skill_root`, `FrameworkFilesystem`, `diagnose`, etc.) are
+  unchanged and continue to resolve.
+
 ## [2.0.5] — 2026-09-20
 
 ### Changed
