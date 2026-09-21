@@ -244,3 +244,32 @@ class ToolCallArgAccumulator:
         name = str(state.get("name") or "") or None
         args = _merge_args(parse_partial_args(str(state.get("args_str") or "")), overlay)
         return name, args
+
+    def seed_overlay(
+        self,
+        tool_call_id: str,
+        *,
+        name: str = "",
+        args: dict[str, Any] | None = None,
+    ) -> None:
+        """Seed name + parsed args for a call from a wire (non-chunk) source.
+
+        The host (soothe) executor emits ``soothe.stream.tool_call.update``
+        custom events with pre-parsed kwargs. Feeding them here lets
+        ``ToolCompleted`` (messages path) resolve the name and args even when
+        ``tool_call_chunks`` streamed empty/partial JSON — the overlay is the
+        fallback in ``_resolved_args`` / ``pop``.
+        """
+        tc_id = str(tool_call_id or "").strip()
+        if not tc_id:
+            return
+        if name:
+            state = self._ensure(tc_id)
+            if not state.get("name"):
+                state["name"] = name
+            self._last_active_id = tc_id
+        if isinstance(args, dict) and args:
+            prev = self._overlays.get(tc_id) or {}
+            merged = _merge_args(prev, args)
+            if merged != prev:
+                self._overlays[tc_id] = merged

@@ -48,6 +48,14 @@ def message_chunk(message: Any) -> tuple[str, str, Any]:
     return ("ns", "messages", (message, {}))
 
 
+def update_chunk(payload: dict[str, Any]) -> tuple[str, str, Any]:
+    return ("ns", "updates", payload)
+
+
+def custom_chunk(payload: dict[str, Any]) -> tuple[str, str, Any]:
+    return ("ns", "custom", payload)
+
+
 async def collect(chunks: list[tuple[str, str, Any]]) -> list[Any]:
     backend = NanoRuntimeBackend(agent=StubAgent(chunks))
     request = RunRequest(model="default", input_text="hi")
@@ -103,10 +111,6 @@ async def test_pre_tool_narration_is_dropped_and_tools_are_summarised():
 
     # The narration is superseded by the tool call, so it must not reach the client.
     assert all("look that up" not in e.delta for e in events if isinstance(e, OutputTextDelta))
-
-
-def update_chunk(payload: dict[str, Any]) -> tuple[str, str, Any]:
-    return ("ns", "updates", payload)
 
 
 @pytest.mark.asyncio
@@ -411,3 +415,173 @@ async def test_nano_adapter_recycles_agent_after_cancelled_turn():
     recovered = [event async for event in adapter.astream(isolated_request())]
     assert isinstance(recovered[-1], RunCompleted)
     assert adapter.generation == 2
+
+
+# ---------------------------------------------------------------------------
+# soothe.stream.tool_call.update — host wire event with pre-parsed args
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_wire_tool_call_update_yields_tool_started():
+    """A wire tool-call update with parsed args yields a real ToolStarted.
+
+    The soothe host executor pre-parses tool kwargs and emits them as a
+    structured custom event. That event must surface as a ToolStarted (not a
+    generic "Stream / Update" Progress) so the CLI renders the tool name +
+    args on the status line.
+    """
+    events = await collect(
+        [
+            custom_chunk(
+                {
+                    "type": "soothe.stream.tool_call.update",
+                    "tool_call_id": "w1",
+                    "name": "write_file",
+                    "args": {"file_path": "a.txt", "content": "hi"},
+                }
+            ),
+            message_chunk(ToolMessage(content="ok", tool_call_id="w1", name="write_file")),
+        ]
+    )
+
+    started = [e for e in events if isinstance(e, ToolStarted)]
+    assert len(started) == 1
+    assert started[0].tool == "write_file"
+    assert started[0].call_id == "w1"
+    assert started[0].args == {"file_path": "a.txt", "content": "hi"}
+
+    completed = [e for e in events if isinstance(e, ToolCompleted)]
+    assert len(completed) == 1
+    assert completed[0].tool == "write_file"
+    assert completed[0].args == {"file_path": "a.txt", "content": "hi"}
+
+
+@pytest.mark.asyncio
+async def test_wire_tool_call_update_refreshes_already_started_call():
+    """A wire update for an already-started call refreshes the status line.
+
+    When the messages path emitted ToolStarted first (empty args from partial
+    JSON), the wire update arrives later with the parsed args and must refresh
+    the progress line so it shows "Writing a.txt" instead of bare "Writing".
+    """
+    events = await collect(
+        [
+            message_chunk(
+                AIMessageChunk(
+                    content="",
+                    tool_call_chunks=[{"name": "write_file", "args": "", "id": "c1", "index": 0}],
+                )
+            ),
+            custom_chunk(
+                {
+                    "type": "soothe.stream.tool_call.update",
+                    "tool_call_id": "c1",
+                    "name": "write_file",
+                    "args": {"file_path": "b.txt"},
+                }
+            ),
+            message_chunk(ToolMessage(content="ok", tool_call_id="c1", name="write_file")),
+        ]
+    )
+
+    started = [e for e in events if isinstance(e, ToolStarted)]
+    assert len(started) == 1
+    assert started[0].tool == "write_file"
+
+    refresh = [
+        e
+        for e in events
+        if isinstance(e, Progress) and (e.raw or {}).get("type") == "soothe.tool.started"
+    ]
+    assert len(refresh) == 1
+    assert refresh[0].raw["args"]["file_path"] == "b.txt"
+
+    completed = [e for e in events if isinstance(e, ToolCompleted)]
+    assert completed[0].args["file_path"] == "b.txt"
+
+
+@pytest.mark.asyncio
+async def test_wire_tool_call_update_does_not_duplicate_tool_started():
+    """Two wire updates for the same call yield one ToolStarted + one refresh."""
+    events = await collect(
+        [
+            custom_chunk(
+                {
+                    "type": "soothe.stream.tool_call.update",
+                    "tool_call_id": "w2",
+                    "name": "read_file",
+                    "args": {"file_path": "x.py"},
+                }
+            ),
+            custom_chunk(
+                {
+                    "type": "soothe.stream.tool_call.update",
+                    "tool_call_id": "w2",
+                    "name": "read_file",
+                    "args": {"file_path": "x.py", "offset": 10},
+                }
+            ),
+            message_chunk(ToolMessage(content="data", tool_call_id="w2", name="read_file")),
+        ]
+    )
+
+    started = [e for e in events if isinstance(e, ToolStarted)]
+    assert len(started) == 1
+
+    completed = [e for e in events if isinstance(e, ToolCompleted)]
+    assert len(completed) == 1
+    assert completed[0].args["file_path"] == "x.py"
+
+
+@pytest.mark.asyncio
+async def test_wire_tool_call_update_skips_quiet_tools():
+    """write_todos wire updates do not surface as tool calls (plan bookkeeping)."""
+    events = await collect(
+        [
+            custom_chunk(
+                {
+                    "type": "soothe.stream.tool_call.update",
+                    "tool_call_id": "w3",
+                    "name": "write_todos",
+                    "args": {"todos": [{"content": "Do it", "status": "pending"}]},
+                }
+            ),
+            message_chunk(ToolMessage(content="ok", tool_call_id="w3", name="write_todos")),
+        ]
+    )
+
+    assert [e for e in events if isinstance(e, ToolStarted)] == []
+    assert [e for e in events if isinstance(e, ToolCompleted)] == []
+
+
+@pytest.mark.asyncio
+async def test_wire_tool_call_update_seeds_args_for_tool_completed():
+    """Wire args survive to ToolCompleted even with no messages-path chunks.
+
+    The soothe backend may emit the wire update but stream no
+    tool_call_chunks at all (args pre-parsed by the executor). The
+    accumulator overlay seeded by the wire handler must be the sole source
+    of args at ToolCompleted time.
+    """
+    events = await collect(
+        [
+            custom_chunk(
+                {
+                    "type": "soothe.stream.tool_call.update",
+                    "tool_call_id": "w4",
+                    "name": "run_command",
+                    "args": {"command": "echo hi"},
+                }
+            ),
+            message_chunk(ToolMessage(content="hi\n", tool_call_id="w4", name="run_command")),
+        ]
+    )
+
+    started = [e for e in events if isinstance(e, ToolStarted)]
+    assert started[0].tool == "run_command"
+    assert started[0].args == {"command": "echo hi"}
+
+    completed = [e for e in events if isinstance(e, ToolCompleted)]
+    assert completed[0].tool == "run_command"
+    assert completed[0].args == {"command": "echo hi"}

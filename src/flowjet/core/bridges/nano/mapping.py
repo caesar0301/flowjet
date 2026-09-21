@@ -33,6 +33,13 @@ _SKIP_CUSTOM_TYPES = frozenset(
     }
 )
 
+# Host (soothe) executor emits this as a ``mode=custom`` chunk carrying
+# pre-parsed tool kwargs — a structured wire event that bypasses the fragile
+# ``tool_call_chunks`` partial-JSON accumulation. Handled in
+# ``iter_nano_runtime_events`` (not ``map_custom``) so it can yield a real
+# ``ToolStarted`` and feed the accumulator's arg overlays.
+_STREAM_TOOL_CALL_UPDATE = "soothe.stream.tool_call.update"
+
 # Host (soothe) middleware surfaces as ``<Middleware>.<phase>`` graph updates.
 # The CLI renders these through ``friendly_progress``, so the synthetic payloads
 # below stay in the same ``soothe.*`` vocabulary as nano's custom events.
@@ -216,6 +223,10 @@ def map_custom(data: dict[str, Any]) -> Progress | None:
     event_type = str(data.get("type") or "").strip()
     if not event_type or event_type in _SKIP_CUSTOM_TYPES:
         return None
+    if event_type == _STREAM_TOOL_CALL_UPDATE:
+        # Handled in ``iter_nano_runtime_events`` — yields a ToolStarted /
+        # Progress refresh with the pre-parsed args, never a generic Progress.
+        return None
     if event_type.startswith("soothe.output."):
         return None
     short = event_type[7:] if event_type.startswith("soothe.") else event_type
@@ -230,6 +241,61 @@ def map_custom(data: dict[str, Any]) -> Progress | None:
     message = data.get("message") or data.get("action_preview") or action.replace("_", " ")
     stage = str(data.get("tool") or data.get("name") or domain).title()
     return Progress(stage=str(stage), message=str(message or "Working"), raw=data)
+
+
+def _wire_tool_call_update(
+    data: dict[str, Any],
+    *,
+    emitted_calls: set[str],
+    refreshed_calls: set[str],
+    tool_args: ToolCallArgAccumulator,
+) -> list[RuntimeEvent]:
+    """Convert a ``soothe.stream.tool_call.update`` into ToolStarted / Progress.
+
+    The host (soothe) executor pre-parses tool kwargs and emits them as a
+    structured wire event — an efficient transit path that does not depend on
+    ``tool_call_chunks`` partial-JSON accumulation. This makes that path
+    first-class: a new call id yields ``ToolStarted`` (same as the
+    ``messages`` path), and a repeat yields a ``Progress`` refresh so the
+    status line picks up the parsed args.
+
+    Args are also fed into ``tool_args`` overlays so the eventual
+    ``ToolCompleted`` event carries them even if the ``messages``-mode chunks
+    never produced parseable JSON.
+    """
+    tc_id = str(data.get("tool_call_id") or "").strip()
+    name = str(data.get("name") or "").strip()
+    args = data.get("args")
+    if not isinstance(args, dict):
+        args = {}
+    if not tc_id:
+        return []
+    # Seed the accumulator's overlay so ToolCompleted (messages path) sees
+    # the parsed args even if tool_call_chunks were empty or partial.
+    tool_args.seed_overlay(tc_id, name=name, args=args)
+    # Quiet tools (write_todos) are plan bookkeeping that already surfaces as
+    # step progress — never emit a ToolStarted for them.
+    if name in _QUIET_TOOLS:
+        return []
+    if tc_id in emitted_calls:
+        # Already started via the messages path; refresh the status line with
+        # the parsed args (Writing a.txt, not bare Writing).
+        if args and tc_id not in refreshed_calls:
+            refreshed_calls.add(tc_id)
+            return [
+                Progress(
+                    stage="Tool",
+                    message=tool_call_summary(name or "tool", args),
+                    raw={
+                        "type": "soothe.tool.started",
+                        "tool": name,
+                        "args": args,
+                    },
+                )
+            ]
+        return []
+    emitted_calls.add(tc_id)
+    return [ToolStarted(tool=name or "tool", call_id=tc_id, args=args or None)]
 
 
 async def iter_nano_runtime_events(
@@ -284,6 +350,18 @@ async def iter_nano_runtime_events(
             _ns, mode, data = chunk
 
             if mode == "custom" and isinstance(data, dict):
+                # Host (soothe) wire tool-call update: pre-parsed args that
+                # bypass tool_call_chunks partial-JSON accumulation. Handle
+                # before map_custom so it yields a real ToolStarted.
+                if str(data.get("type") or "").strip() == _STREAM_TOOL_CALL_UPDATE:
+                    for event in _wire_tool_call_update(
+                        data,
+                        emitted_calls=emitted_calls,
+                        refreshed_calls=refreshed_calls,
+                        tool_args=tool_args,
+                    ):
+                        yield event
+                    continue
                 mapped = map_custom(data)
                 if mapped:
                     yield mapped
