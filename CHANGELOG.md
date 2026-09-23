@@ -10,6 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.7] — 2026-09-23
+
+### Changed
+
+- **Bump soothe-nano to the latest.** `soothe-nano` `1.3.0 → 1.3.1`. The
+  `>=1.3.0,<1.4.0` spec already permitted the upgrade, so no version cap
+  change was needed; the lock is re-resolved. All FlowJet import paths into
+  soothe/soothe-nano are unchanged and continue to resolve.
+
 ## [2.0.6] — 2026-09-21
 
 ### Changed
