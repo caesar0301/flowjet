@@ -11,11 +11,13 @@ from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 
 from flowjet.cli.progress import ProgressLine
 from flowjet.cli.stream import (
+    INTERRUPTED,
     AnswerWriter,
     _ai_text,
     _status_preview,
     _verbose_preview,
     accumulate_ai_text,
+    format_questions_block,
     invoke_query,
     stream_query,
 )
@@ -577,3 +579,193 @@ async def test_invoke_query_buffers_until_end() -> None:
     assert result == "Final answer"
     assert out.getvalue().startswith("Final answer\n")
     assert out.getvalue().endswith(" · t1\n")
+
+
+# ---------------------------------------------------------------------------
+# ask_user interrupt — questions rendering + INTERRUPTED sentinel + resume
+# ---------------------------------------------------------------------------
+
+
+def _interrupt_chunk(questions: list[dict[str, Any]]) -> tuple[tuple[()], str, dict[str, Any]]:
+    """Build an ``updates`` chunk carrying an ``ask_user`` __interrupt__."""
+    from langgraph.types import Interrupt
+
+    value = {"type": "ask_user", "questions": questions}
+    return ((), "updates", {"__interrupt__": (Interrupt(value=value, id="int-1"),)})
+
+
+_QUESTIONS = [
+    {
+        "question": "Which auth method should I use?",
+        "header": "Auth method",
+        "options": [
+            {"label": "API Key (Recommended)", "description": "Use an API key"},
+            {"label": "OAuth", "description": "Use OAuth flow"},
+        ],
+    }
+]
+
+
+@pytest.mark.asyncio
+async def test_stream_query_ask_user_interrupt_returns_interrupted() -> None:
+    """An ask_user interrupt renders questions and returns INTERRUPTED."""
+    out = StringIO()
+    err = StringIO()
+    agent = _FakeAgent(
+        [
+            _interrupt_chunk(_QUESTIONS),
+        ]
+    )
+    result = await stream_query(
+        agent,  # type: ignore[arg-type]
+        "set up auth",
+        thread_id="t-auth",
+        live_answer=True,
+        out=out,
+        err=err,
+        progress=ProgressLine(out, enabled=False),
+    )
+    assert result == INTERRUPTED
+    output = out.getvalue()
+    assert "Paused for input" in output
+    assert "Auth method" in output
+    assert "Which auth method" in output
+    assert "API Key (Recommended)" in output
+    assert "fjf -t t-auth" in output
+    # Must NOT print "Done" when interrupted.
+    assert "Done" not in output
+
+
+@pytest.mark.asyncio
+async def test_stream_query_non_ask_user_interrupt_continues() -> None:
+    """A non-ask_user interrupt (no questions) does not set INTERRUPTED."""
+    out = StringIO()
+    err = StringIO()
+    agent = _FakeAgent(
+        [
+            ((), "updates", {"__interrupt__": True}),
+            _msg_chunk(AIMessage(content="Recovered.")),
+        ]
+    )
+    result = await stream_query(
+        agent,  # type: ignore[arg-type]
+        "go",
+        thread_id="t1",
+        show_tool_calls=True,
+        live_answer=True,
+        out=out,
+        err=err,
+        progress=ProgressLine(out, enabled=False),
+    )
+    assert result == "Recovered."
+    assert out.getvalue().startswith("Recovered.\n")
+
+
+@pytest.mark.asyncio
+async def test_stream_query_resume_value_passed_to_backend() -> None:
+    """When resume_value is set, the run resumes the paused graph."""
+    from langgraph.types import Command
+
+    captured: dict[str, Any] = {}
+
+    class _CaptureAgent:
+        async def astream(self, payload: Any, *_a: Any, **_k: Any) -> Any:
+            captured["payload"] = payload
+            yield _msg_chunk(AIMessage(content="Resumed!"))
+
+    out = StringIO()
+    result = await stream_query(
+        _CaptureAgent(),  # type: ignore[arg-type]
+        "my answer",
+        thread_id="t1",
+        resume_value="my answer",
+        live_answer=True,
+        out=out,
+        progress=ProgressLine(out, enabled=False),
+    )
+    assert result == "Resumed!"
+    # Resume sends a Command(resume=...) — not a HumanMessage dict.
+    assert isinstance(captured["payload"], Command)
+    assert captured["payload"].resume == "my answer"
+
+
+def test_format_questions_block_renders_header_and_options() -> None:
+    block = format_questions_block(tuple(_QUESTIONS), "t-123")
+    assert "Paused for input" in block
+    assert "[Auth method]" in block
+    assert "Which auth method should I use?" in block
+    assert "API Key (Recommended)" in block
+    assert "OAuth" in block
+    assert "fjf -t t-123" in block
+
+
+def test_format_questions_block_empty_shows_generic_hint() -> None:
+    block = format_questions_block((), "t-456")
+    assert "Paused for input" in block
+    assert "fjf -t t-456" in block
+
+
+# ---------------------------------------------------------------------------
+# _extract_ask_user_interrupts — pulls questions from __interrupt__ payloads
+# ---------------------------------------------------------------------------
+
+
+def test_extract_ask_user_interrupts_from_interrupt_objects() -> None:
+    from langgraph.types import Interrupt
+
+    from flowjet.core.bridges.nano.mapping import _extract_ask_user_interrupts
+
+    value = {"type": "ask_user", "questions": _QUESTIONS}
+    raw = (Interrupt(value=value, id="int-1"),)
+    questions, ids = _extract_ask_user_interrupts(raw)
+    assert len(questions) == 1
+    assert questions[0]["header"] == "Auth method"
+    assert ids == ("int-1",)
+
+
+def test_extract_ask_user_interrupts_from_dicts() -> None:
+    from flowjet.core.bridges.nano.mapping import _extract_ask_user_interrupts
+
+    value = {"type": "ask_user", "questions": _QUESTIONS}
+    raw = ({"value": value, "id": "int-2"},)
+    questions, ids = _extract_ask_user_interrupts(raw)
+    assert len(questions) == 1
+    assert ids == ("int-2",)
+
+
+def test_extract_ask_user_interrupts_skips_non_ask_user() -> None:
+    from langgraph.types import Interrupt
+
+    from flowjet.core.bridges.nano.mapping import _extract_ask_user_interrupts
+
+    # A tool-approval interrupt (no ask_user type) — no questions, but id kept.
+    raw = (Interrupt(value={"action_requests": []}, id="int-3"),)
+    questions, ids = _extract_ask_user_interrupts(raw)
+    assert questions == ()
+    assert ids == ("int-3",)
+
+
+def test_extract_ask_user_interrupts_empty() -> None:
+    from flowjet.core.bridges.nano.mapping import _extract_ask_user_interrupts
+
+    questions, ids = _extract_ask_user_interrupts(())
+    assert questions == ()
+    assert ids == ()
+
+
+def test_extract_ask_user_interrupts_multiple_questions() -> None:
+    from langgraph.types import Interrupt
+
+    from flowjet.core.bridges.nano.mapping import _extract_ask_user_interrupts
+
+    qs = [
+        {"question": "Q1?", "header": "H1", "options": []},
+        {"question": "Q2?", "header": "H2", "options": []},
+    ]
+    value = {"type": "ask_user", "questions": qs}
+    raw = (Interrupt(value=value, id="int-4"),)
+    questions, ids = _extract_ask_user_interrupts(raw)
+    assert len(questions) == 2
+    assert questions[0]["header"] == "H1"
+    assert questions[1]["header"] == "H2"
+    assert ids == ("int-4",)

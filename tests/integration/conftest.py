@@ -103,7 +103,7 @@ def stub_agent_runtime(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         seen["stream"] = {"query": query, "thread_id": thread_id}
         return "ok"
 
-    async def fake_invoke(_agent: object, query: str, *, thread_id: str) -> str:
+    async def fake_invoke(_agent: object, query: str, *, thread_id: str, **_k: object) -> str:
         seen["invoke"] = {"query": query, "thread_id": thread_id}
         return "ok"
 

@@ -298,6 +298,46 @@ def _wire_tool_call_update(
     return [ToolStarted(tool=name or "tool", call_id=tc_id, args=args or None)]
 
 
+def _extract_ask_user_interrupts(
+    raw: Any,
+) -> tuple[tuple[dict[str, Any], ...], tuple[str, ...]]:
+    """Pull ``ask_user`` questions and interrupt ids from a ``__interrupt__`` payload.
+
+    LangGraph emits ``__interrupt__`` as a tuple of ``Interrupt`` objects (or
+    dicts). Each carries a ``value`` with the interrupt payload; soothe's
+    ``ask_user`` tool tags it with ``{"type": "ask_user", "questions": [...]}``.
+
+    Returns ``(questions, interrupt_ids)`` — only questions from ``ask_user``
+    interrupts are surfaced; other interrupt kinds (tool approval, etc.) yield
+    an empty questions tuple but still carry their interrupt id so the CLI can
+    render a generic "paused for input" message.
+    """
+    if not isinstance(raw, (list, tuple)):
+        raw = (raw,) if raw is not None else ()
+    questions: list[dict[str, Any]] = []
+    interrupt_ids: list[str] = []
+    for entry in raw:
+        value: Any = None
+        int_id: str = ""
+        # LangGraph Interrupt objects have ``.value`` / ``.id``; serialized
+        # dicts use the same keys.
+        if hasattr(entry, "value"):
+            value = getattr(entry, "value", None)
+            int_id = str(getattr(entry, "id", "") or "")
+        elif isinstance(entry, dict):
+            value = entry.get("value")
+            int_id = str(entry.get("id", "") or "")
+        if int_id:
+            interrupt_ids.append(int_id)
+        if isinstance(value, dict) and value.get("type") == "ask_user":
+            qs = value.get("questions")
+            if isinstance(qs, list):
+                for q in qs:
+                    if isinstance(q, dict):
+                        questions.append(q)
+    return tuple(questions), tuple(interrupt_ids)
+
+
 async def iter_nano_runtime_events(
     agent: Any,
     *,
@@ -308,8 +348,14 @@ async def iter_nano_runtime_events(
     workspace: str | None = None,
     thread_id: str | None = None,
     interaction_mode: str | None = "agent",
+    resume_value: Any = None,
 ) -> AsyncIterator[RuntimeEvent]:
-    """Drive ``agent.astream`` and yield sanitized runtime events."""
+    """Drive ``agent.astream`` and yield sanitized runtime events.
+
+    When ``resume_value`` is set, the run resumes a paused graph (an
+    ``ask_user`` interrupt) with that value via ``Command(resume=...)``
+    instead of starting a new turn from ``input_text``.
+    """
     try:
         from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
     except ImportError as exc:  # pragma: no cover
@@ -327,7 +373,15 @@ async def iter_nano_runtime_events(
     if workspace:
         configurable["workspace"] = workspace
 
-    messages = [HumanMessage(content=input_text)]
+    # Resume a paused graph (ask_user interrupt) rather than starting a new
+    # turn. LangGraph's ``Command(resume=...)`` delivers the value to the
+    # ``interrupt()`` call that suspended the graph.
+    if resume_value is not None:
+        from langgraph.types import Command
+
+        payload: Any = Command(resume=resume_value)
+    else:
+        payload = {"messages": [HumanMessage(content=input_text)]}
     config = {"configurable": configurable}
     answer = ""
     composing = False
@@ -340,7 +394,7 @@ async def iter_nano_runtime_events(
 
     try:
         async for chunk in agent.astream(
-            {"messages": messages},
+            payload,
             config=config,
             stream_mode=["messages", "updates", "custom"],
             subgraphs=True,
@@ -369,7 +423,12 @@ async def iter_nano_runtime_events(
 
             if mode == "updates" and isinstance(data, dict):
                 if "__interrupt__" in data:
-                    yield InterruptWaiting(message="Waiting for input…")
+                    questions, interrupt_ids = _extract_ask_user_interrupts(data["__interrupt__"])
+                    yield InterruptWaiting(
+                        message="Waiting for input…",
+                        questions=questions,
+                        interrupt_ids=interrupt_ids,
+                    )
                     continue
                 # Plan steps (todos) and host middleware phases are the only
                 # signal soothe gives us about *what* it is doing between tool

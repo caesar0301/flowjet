@@ -55,5 +55,6 @@ class DirectRuntimeBackend:
             # The CLI resolves the interaction mode when it builds the agent
             # (auto / ask / bypass); nano must not be pinned back to "agent".
             interaction_mode=None,
+            resume_value=request.resume_value,
         ):
             yield event

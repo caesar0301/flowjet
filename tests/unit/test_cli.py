@@ -698,3 +698,84 @@ def test_main_verbose_reconfigures_logging(monkeypatch) -> None:  # type: ignore
     monkeypatch.setattr(cli, "run_one_shot", fake_run)
     assert cli.main(["-v", "hi"]) == 0
     assert False in seen and True in seen
+
+
+# ---------------------------------------------------------------------------
+# _detect_pending_interrupt — checks the graph snapshot for ask_user pauses
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_detect_pending_interrupt_returns_ask_user_value() -> None:
+    from flowjet.cli.cli import _detect_pending_interrupt
+
+    class _Interrupt:
+        def __init__(self, value: object) -> None:
+            self.value = value
+
+    class _Snapshot:
+        interrupts = (_Interrupt({"type": "ask_user", "questions": [{"header": "H"}]}),)
+
+    class _Agent:
+        async def aget_state(self, _config: object) -> object:
+            return _Snapshot()
+
+    result = await _detect_pending_interrupt(_Agent(), "t-1")
+    assert result == {"type": "ask_user", "questions": [{"header": "H"}]}
+
+
+@pytest.mark.asyncio
+async def test_detect_pending_interrupt_skips_non_ask_user() -> None:
+    from flowjet.cli.cli import _detect_pending_interrupt
+
+    class _Interrupt:
+        def __init__(self, value: object) -> None:
+            self.value = value
+
+    class _Snapshot:
+        interrupts = (_Interrupt({"action_requests": []}),)
+
+    class _Agent:
+        async def aget_state(self, _config: object) -> object:
+            return _Snapshot()
+
+    result = await _detect_pending_interrupt(_Agent(), "t-2")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_detect_pending_interrupt_none_when_no_interrupts() -> None:
+    from flowjet.cli.cli import _detect_pending_interrupt
+
+    class _Snapshot:
+        interrupts = ()
+
+    class _Agent:
+        async def aget_state(self, _config: object) -> object:
+            return _Snapshot()
+
+    result = await _detect_pending_interrupt(_Agent(), "t-3")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_detect_pending_interrupt_none_when_no_checkpointer() -> None:
+    from flowjet.cli.cli import _detect_pending_interrupt
+
+    class _Agent:
+        pass
+
+    result = await _detect_pending_interrupt(_Agent(), "t-4")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_detect_pending_interrupt_soft_fails_on_error() -> None:
+    from flowjet.cli.cli import _detect_pending_interrupt
+
+    class _Agent:
+        async def aget_state(self, _config: object) -> object:
+            raise RuntimeError("boom")
+
+    result = await _detect_pending_interrupt(_Agent(), "t-5")
+    assert result is None

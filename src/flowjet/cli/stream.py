@@ -36,6 +36,11 @@ from flowjet.core.tool_results import (
 # Min interval between live narration previews on the progress line (seconds).
 _STATUS_PREVIEW_MIN_INTERVAL = 0.12
 
+# Returned by ``stream_query`` / ``invoke_query`` when the agent paused for
+# human input (``ask_user`` interrupt) instead of completing. The CLI checks
+# for this sentinel to print the resume hint and accept an answer via ``fjf``.
+INTERRUPTED = "__FJ_INTERRUPTED__"
+
 
 def _format_duration(seconds: float) -> str:
     """Format an elapsed time as a short human-readable duration.
@@ -273,6 +278,44 @@ class AnswerWriter:
         return self.buf
 
 
+def format_questions_block(questions: tuple[dict[str, Any], ...], thread_id: str) -> str:
+    """Render ``ask_user`` questions as a terminal block with a resume hint.
+
+    The block is written to stdout after the ephemeral progress line is
+    cleared, so it stays visible. Each question lists its options with the
+    recommended one (label ending in "(Recommended)") marked. The footer
+    tells the user how to resume with an answer via ``fjf``.
+    """
+    if not questions:
+        return f"\n⏸ Paused for input · resume with: fjf -t {thread_id} <your answer>\n"
+    lines: list[str] = ["", "⏸ Paused for input:"]
+    for qi, q in enumerate(questions, 1):
+        header = str(q.get("header") or "").strip()
+        question = str(q.get("question") or "").strip()
+        if len(questions) > 1:
+            prefix = f"  Q{qi}: "
+        else:
+            prefix = "  "
+        if header:
+            lines.append(f"{prefix}[{header}] {question}")
+        else:
+            lines.append(f"{prefix}{question}")
+        options = q.get("options")
+        if isinstance(options, list):
+            for opt in options:
+                if not isinstance(opt, dict):
+                    continue
+                label = str(opt.get("label") or "").strip()
+                desc = str(opt.get("description") or "").strip()
+                marker = " ★" if "(Recommended)" in label or "Recommended" in label else ""
+                if desc:
+                    lines.append(f"      • {label}{marker} — {desc}")
+                else:
+                    lines.append(f"      • {label}{marker}")
+    lines.append(f"\n  Resume with: fjf -t {thread_id} <your answer>\n")
+    return "\n".join(lines) + "\n"
+
+
 async def stream_query(
     agent: SootheNanoAgent,
     query: str,
@@ -283,8 +326,14 @@ async def stream_query(
     out: TextIO | None = None,
     err: TextIO | None = None,
     progress: ProgressLine | None = None,
+    resume_value: Any = None,
 ) -> str:
-    """Run a query with ephemeral progress; print the complete final answer."""
+    """Run a query with ephemeral progress; print the complete final answer.
+
+    When the agent pauses for human input (``ask_user`` interrupt), the
+    questions are rendered and :data:`INTERRUPTED` is returned — the run is
+    not complete and must be resumed with ``fjf -t <thread> <answer>``.
+    """
     stdout = out or sys.stdout
     stderr = err or sys.stderr
     status = progress if progress is not None else ProgressLine(stdout)
@@ -293,6 +342,7 @@ async def stream_query(
     # ``-v``: emit each tool call once when args are available.
     mirrored_tool_ids: set[str] = set()
     started_at = time.monotonic()
+    interrupted = False
 
     # Deepagents emits a deprecation warning mid-run that would smash the
     # ephemeral progress line when mixed onto the terminal.
@@ -309,7 +359,12 @@ async def stream_query(
         async with status:
             status.update("Thinking", color="cyan")
             async for event in backend.stream_run(
-                RunRequest(model="default", input_text=query, session=thread_id)
+                RunRequest(
+                    model="default",
+                    input_text=query,
+                    session=thread_id,
+                    resume_value=resume_value,
+                )
             ):
                 if isinstance(event, Progress):
                     # ``raw`` carries the soothe-nano custom payload so the
@@ -378,7 +433,15 @@ async def stream_query(
 
                 if isinstance(event, InterruptWaiting):
                     status.update("Waiting for input…", color="yellow")
-                    if show_tool_calls:
+                    if event.questions:
+                        # A real ``ask_user`` interrupt pauses the graph —
+                        # render the questions and mark the run as interrupted
+                        # so the CLI returns ``INTERRUPTED`` instead of "Done".
+                        status.blank()
+                        stdout.write(format_questions_block(event.questions, thread_id))
+                        stdout.flush()
+                        interrupted = True
+                    elif show_tool_calls:
                         _write_verbose(
                             status,
                             stderr,
@@ -390,6 +453,10 @@ async def stream_query(
                     raise RuntimeError(event.message)
 
     answer_text = answer.finish()
+    if interrupted:
+        # The run paused for input — don't print "Done", the questions block
+        # (or generic pause message) is already on stdout.
+        return INTERRUPTED
     duration = _format_duration(time.monotonic() - started_at)
     stdout.write(f"\n✓ Done · {duration} · {thread_id}\n")
     stdout.flush()
@@ -403,6 +470,7 @@ async def invoke_query(
     thread_id: str,
     out: TextIO | None = None,
     progress: ProgressLine | None = None,
+    resume_value: Any = None,
 ) -> str:
     """Progress until done, then print the final text (no live narration preview)."""
     return await stream_query(
@@ -413,4 +481,5 @@ async def invoke_query(
         live_answer=False,
         out=out,
         progress=progress,
+        resume_value=resume_value,
     )

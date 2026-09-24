@@ -57,6 +57,7 @@ class NanoRuntimeBackend:
             workspace=workspace,
             thread_id=session,
             interaction_mode=resolve_interaction_mode(request.metadata),
+            resume_value=request.resume_value,
         ):
             yield event
 

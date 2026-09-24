@@ -518,6 +518,37 @@ def run_pin_thread(thread_id: str) -> int:
     return 0
 
 
+async def _detect_pending_interrupt(agent: Any, thread_id: str) -> Any:
+    """Return the pending ``ask_user`` interrupt value, or ``None``.
+
+    Checks the LangGraph snapshot for the thread. When an ``ask_user``
+    interrupt is pending, its ``value`` carries the question specs; the CLI
+    can resume the run by feeding the user's answer to ``Command(resume=...)``.
+    """
+    get_state = getattr(agent, "aget_state", None)
+    if not callable(get_state):
+        return None
+    try:
+        snapshot = await get_state({"configurable": {"thread_id": thread_id}})
+    except Exception:
+        return None
+    if snapshot is None:
+        return None
+    interrupts = getattr(snapshot, "interrupts", None) or ()
+    if not interrupts:
+        # Some snapshots nest interrupts under per-task state.
+        tasks = getattr(snapshot, "tasks", None) or ()
+        for task in tasks:
+            task_interrupts = getattr(task, "interrupts", None) or ()
+            interrupts = task_interrupts
+            break
+    for entry in interrupts:
+        value = getattr(entry, "value", None)
+        if isinstance(value, dict) and value.get("type") == "ask_user":
+            return value
+    return None
+
+
 async def run_async(args: argparse.Namespace) -> int:
     conflict = validate_arg_composition(args)
     if conflict:
@@ -570,14 +601,39 @@ async def run_async(args: argparse.Namespace) -> int:
                     ask_mode=getattr(args, "ask", False),
                     bypass_mode=getattr(args, "bypass", False),
                 )
+                # If the thread paused on an ``ask_user`` interrupt, the user's
+                # query text is their answer — resume the run instead of
+                # starting a new turn. ``fjf`` (follow) hits this path when the
+                # previous run ended on a question.
+                resume_value: Any = None
+                pending = await _detect_pending_interrupt(agent, thread_id)
+                if pending is not None:
+                    from flowjet.cli.stream import format_questions_block
+
+                    questions = pending.get("questions") or ()
+                    if isinstance(questions, list):
+                        questions = tuple(q for q in questions if isinstance(q, dict))
+                    else:
+                        questions = ()
+                    # Print the questions so the user sees what they're answering.
+                    if questions:
+                        sys.stdout.write(format_questions_block(questions, thread_id))
+                        sys.stdout.flush()
+                    resume_value = {"answers": [args.query_text]}
                 if args.no_stream:
-                    await invoke_query(agent, args.query_text, thread_id=thread_id)
+                    await invoke_query(
+                        agent,
+                        args.query_text,
+                        thread_id=thread_id,
+                        resume_value=resume_value,
+                    )
                 else:
                     await stream_query(
                         agent,
                         args.query_text,
                         thread_id=thread_id,
                         show_tool_calls=args.verbose,
+                        resume_value=resume_value,
                     )
     except ConcurrentSessionError as exc:
         sys.stderr.write(f"error: {exc}\n")

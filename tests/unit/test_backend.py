@@ -176,8 +176,9 @@ def test_cli_nano_backend_uses_nano_factory(monkeypatch: pytest.MonkeyPatch) -> 
 def test_cli_soothe_backend_disables_hitl_interrupts(monkeypatch: pytest.MonkeyPatch) -> None:
     """The host builder would otherwise interrupt on write/edit/run_command.
 
-    FlowJet renders ``InterruptWaiting`` and stops — it has no resume path — so
-    a mutating tool call would stall the run.
+    FlowJet renders ``InterruptWaiting`` and stops — only ``ask_user`` is
+    resumable via ``fjf``; HITL interrupts on mutating tools would stall the
+    run with no resume path.
     """
     captured: dict = {}
 

@@ -63,7 +63,16 @@ class OutputTextDelta:
 
 @dataclass(frozen=True, slots=True)
 class InterruptWaiting:
+    """Agent paused for human input (``ask_user`` interrupt).
+
+    When the pause comes from soothe's ``ask_user`` tool, ``questions`` carries
+    the structured question specs the model asked, so the CLI can render them
+    and accept an answer that resumes the run on a follow-up invocation.
+    """
+
     message: str | None = None
+    questions: tuple[dict[str, Any], ...] = ()
+    interrupt_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +101,10 @@ class RunRequest:
     session: str | None = None
     metadata: dict[str, Any] | None = None
     run_id: str | None = None
+    # When set, the run resumes a paused graph (``ask_user`` interrupt) with the
+    # given value instead of starting a new turn from ``input_text``. The value
+    # is passed to LangGraph's ``Command(resume=...)``.
+    resume_value: Any = None
 
 
 @dataclass(frozen=True, slots=True)
