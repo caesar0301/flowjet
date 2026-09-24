@@ -10,6 +10,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.9] — 2026-09-24
+
+### Fixed
+
+- **Suppress noisy third-party warnings at startup.** `requests` emits
+  `RequestsDependencyWarning` when the installed `urllib3` / `chardet` /
+  `charset_normalizer` versions fall outside its supported range, and
+  `soothe`'s `TypeSafeClassifier` triggers LangChain's `LangChainBetaWarning`.
+  Both are version-mismatch or beta-API notices the user cannot act on, so
+  they are now silenced at the earliest point of each entry point. A new
+  `core/_warnings.py` module exposes `suppress_known_warnings()`, called from
+  both the CLI (`cli.py`) and server (`server/__main__.py`) `main()` before
+  the heavy agent stack is imported.
+
 ## [2.0.8] — 2026-09-24
 
 ### Added
