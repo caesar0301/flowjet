@@ -35,6 +35,12 @@ def _create_dual_stack_socket(host: str, port: int) -> socket.socket:
 
 
 def main() -> None:
+    # Silence noisy third-party warnings (requests version-mismatch,
+    # LangChain beta-API) before the agent stack is imported.
+    from flowjet.core._warnings import suppress_known_warnings
+
+    suppress_known_warnings()
+
     # Pull in a ~/.soothe/config copy before the first agent build. Kept out of
     # create_app(): the ASGI app is built at import time, and importing a module
     # must not write files.

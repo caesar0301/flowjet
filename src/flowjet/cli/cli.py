@@ -717,6 +717,11 @@ def main_follow(argv: list[str] | None = None) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Silence noisy third-party warnings (requests version-mismatch,
+    # LangChain beta-API) before any heavy import pulls them in.
+    from flowjet.core._warnings import suppress_known_warnings
+
+    suppress_known_warnings()
     try:
         # Parse first so ``-V`` / ``-h`` / ``--help`` exit before we touch the
         # logging stack (and the heavy ``flowjet.cli.agent`` import it used to
