@@ -10,6 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.8] — 2026-09-24
+
+### Added
+
+- **`ask_user` interrupt/resume in the CLI.** The nano runtime now surfaces
+  soothe's `ask_user` interrupt so the agent can pause mid-run to ask
+  structured questions and resume on a follow-up invocation. `RunRequest`
+  gains `resume_value`, which the direct and nano backends forward into
+  LangGraph's `Command(resume=...)` instead of starting a new turn.
+  `mapping.py` extracts the `ask_user` questions and interrupt ids from a
+  `__interrupt__` payload and carries them on `InterruptWaiting`; `stream.py`
+  renders the questions block (options, recommended marker, resume hint) and
+  returns an `INTERRUPTED` sentinel instead of "Done" when the graph pauses.
+  `cli.py` detects a pending `ask_user` interrupt on the thread snapshot,
+  prints the questions, and feeds the user's query text as the resume answer
+  — so `fjf -t <thread> <answer>` continues the paused run.
+
 ## [2.0.7] — 2026-09-23
 
 ### Changed
