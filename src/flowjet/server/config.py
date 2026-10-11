@@ -74,6 +74,30 @@ class Settings(BaseSettings):
     boxlite_workspace_mount_mode: Literal["bind", "sync"] = "bind"
     boxlite_local_fallback: bool = True
 
+    def validate_isolation_compatibility(self, backend: str) -> None:
+        """Raise ``ValueError`` if isolation settings are incompatible with the backend.
+
+        Boxlite isolation (Phase 3) requires the ``soothe`` host runtime.
+        The boxlite worker builds a :class:`SootheAgentAdapter` internally,
+        which depends on soothe's host middleware (goal/step guard, decompose,
+        ask-user).  When ``FLOWJET_SERVER_BACKEND=nano`` is set, the worker
+        would fall back to :class:`NanoAgentAdapter` — which lacks the host
+        layer the isolation pool was designed for — producing a confusing
+        silent degradation rather than the expected isolated-soothe behaviour.
+
+        This guard makes the misconfiguration a loud, early failure at server
+        startup rather than a runtime surprise.
+        """
+        if self.isolation_mode == "boxlite" and backend != "soothe":
+            raise ValueError(
+                "isolation_mode='boxlite' requires FLOWJET_SERVER_BACKEND=soothe, "
+                f"but got backend='{backend}'. Boxlite isolation only works with "
+                "the soothe host runtime, not soothe-nano. Either set "
+                "FLOWJET_SERVER_BACKEND=soothe (or unset it for the default) "
+                "or set FLOWJET_ISOLATION_MODE=thread_pool to use in-process "
+                "isolation with the nano backend."
+            )
+
     def model_ids(self) -> list[str]:
         return [m.strip() for m in self.models.split(",") if m.strip()]
 

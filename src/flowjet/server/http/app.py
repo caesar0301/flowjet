@@ -41,6 +41,10 @@ def build_backend(settings: Settings) -> RuntimeBackend:
     default in-process :class:`ThreadPool` is used (Phase 1/2).
     """
     backend = resolve_backend(Surface.SERVER)
+    # Guard: boxlite isolation requires the soothe host runtime.  Catch the
+    # misconfiguration early (at server startup) rather than letting the
+    # worker silently fall back to a nano adapter inside the container.
+    settings.validate_isolation_compatibility(backend.value)
     workspace_resolver = _build_workspace_resolver(settings)
     isolation_pool = _build_isolation_pool(settings)
     common = dict(
