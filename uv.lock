@@ -1203,8 +1203,8 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.3.0" },
     { name = "pytest-cov", marker = "extra == 'dev'" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.12.0" },
-    { name = "soothe", specifier = ">=1.0.14,<2.0.0" },
-    { name = "soothe-nano", specifier = ">=1.3.0,<1.4.0" },
+    { name = "soothe", specifier = ">=1.0.19,<2.0.0" },
+    { name = "soothe-nano", specifier = ">=1.3.2,<1.4.0" },
     { name = "twine", marker = "extra == 'dev'", specifier = ">=5.0.0" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.32.0" },
 ]
@@ -7315,7 +7315,7 @@ wheels = [
 
 [[package]]
 name = "soothe"
-version = "1.0.14"
+version = "1.0.19"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiosqlite" },
@@ -7337,9 +7337,9 @@ dependencies = [
     { name = "soothe-sdk" },
     { name = "watchdog" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/56/b1/3d12e831ddc944e180fe44bce81dfd7e4d30e882e7e20196f0b71bd24c9f/soothe-1.0.14.tar.gz", hash = "sha256:e3874d13541ac3550f68b4b5ad873959192fe8b8cc70824b8183752787d7f9a6", size = 614438, upload-time = "2026-09-21T10:04:46.671Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ba/5b/9e9b7932abfc8769dbe5ce08d01c4a21eb5bcd18d796bbf798ead8e4df9f/soothe-1.0.19.tar.gz", hash = "sha256:bd2be306104d82f8fe34a16ac612fc589359a7df8767f9b9cda21badf4d25045", size = 619761, upload-time = "2026-10-11T13:31:48Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/12/9b/d85f74de17ee07e61d03896b3218187c3e721f34ac3a692b4ed193daf40e/soothe-1.0.14-py3-none-any.whl", hash = "sha256:55c29d332844ba8023e69f316699999e7532baa92cf61f8f39d1709a0e917f6b", size = 786095, upload-time = "2026-09-21T10:04:45Z" },
+    { url = "https://files.pythonhosted.org/packages/46/b5/650b0a97ceef98248d23d7a07a48db2234fd65e0b4eeeb986940162fccd2/soothe-1.0.19-py3-none-any.whl", hash = "sha256:4a4bfeb548c00475da5e18d7b3e38b5c90084a2a03a2e9866b65f4e90a71176f", size = 792806, upload-time = "2026-10-11T13:31:46Z" },
 ]
 
 [[package]]
@@ -7361,7 +7361,7 @@ wheels = [
 
 [[package]]
 name = "soothe-nano"
-version = "1.3.1"
+version = "1.3.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiofiles" },
@@ -7405,9 +7405,9 @@ dependencies = [
     { name = "tiktoken" },
     { name = "wcmatch" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9c/16/dd7b13aecda945ac1c7da7af4a4ae839d656bc41f4b142880d9ec82053c8/soothe_nano-1.3.1.tar.gz", hash = "sha256:11e455f492cfa8048071f8de287c5b008ebb9c6837f0d499f64d4ed145f72c2e", size = 1328361, upload-time = "2026-09-23T01:53:33.696Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/13/d0/8f90abdcf36b8b8e143c0087ba9e22b6adc6758fa4e5d3e441b491c26dea/soothe_nano-1.3.2.tar.gz", hash = "sha256:72a3e3d40f19dc25ae2d0323ff7b8656f6242933ee909254a485ba31814e8384", size = 1328452, upload-time = "2026-10-11T13:20:53Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/53/74/dc2a84357080089b6ba1c7af7e5a14eba89c3a40efb4f09c9ecae3da4ab0/soothe_nano-1.3.1-py3-none-any.whl", hash = "sha256:7189415bfdfd796f891ca31ed87be1fd279c28c945b031e6f7082ee0fcf1012f", size = 1589422, upload-time = "2026-09-23T01:53:31.863Z" },
+    { url = "https://files.pythonhosted.org/packages/12/5f/4160903bb61a89262b0309244a2dada82bc9ea1cdd8a6864e80f06785df8/soothe_nano-1.3.2-py3-none-any.whl", hash = "sha256:b3068697a9b1a5bf51b9899fe6a5ac6313b5d031b122d28eac6095e72a3e890a", size = 1589515, upload-time = "2026-10-11T13:20:49Z" },
 ]
 
 [[package]]
