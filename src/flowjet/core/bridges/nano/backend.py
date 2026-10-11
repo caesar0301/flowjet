@@ -69,8 +69,15 @@ def build_isolating_nano_backend(
     home: Path | str | None = None,
     pool_settings: Any = None,
     allow_external_workspace: bool = False,
+    workspace_resolver: Any = None,
+    pool: Any | None = None,
 ) -> Any:
-    """Construct IsolatingRuntimeBackend with NanoAgentAdapter factory."""
+    """Construct IsolatingRuntimeBackend with NanoAgentAdapter factory.
+
+    When ``pool`` is provided (Phase 3), it is used directly instead of
+    constructing a new :class:`ThreadPool`.  This allows callers to inject
+    a :class:`BoxLiteIsolationPool` for container-based isolation.
+    """
     from flowjet.core.backends.isolation import IsolatingRuntimeBackend, PoolSettings
 
     settings = pool_settings if pool_settings is not None else PoolSettings()
@@ -84,4 +91,6 @@ def build_isolating_nano_backend(
         pool_settings=settings,
         home=home,
         allow_external_workspace=allow_external_workspace,
+        workspace_resolver=workspace_resolver,
+        pool=pool,
     )

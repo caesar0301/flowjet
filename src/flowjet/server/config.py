@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -52,6 +53,27 @@ class Settings(BaseSettings):
     allow_external_workspace: bool = True
     nano_config: str | None = None
 
+    # Workspace sync (Phase 2) — when set, sessions materialize from / persist
+    # to this fsspec-backed object store. Empty = local-only (Phase 1 behavior).
+    # Example: "s3://bucket/flowjet", "gs://bucket/flowjet", "az://container/pfx"
+    workspace_sync_source: str | None = None
+    workspace_sync_config: str | None = None
+    workspace_cas_root: str = "~/.flowjet/data/cas"
+
+    # Isolation mode (Phase 3) — "thread_pool" (default, in-process) or
+    # "boxlite" (Docker-container-based session isolation).
+    # When set to "boxlite", each worker slot runs in its own container,
+    # providing filesystem and process isolation between sessions.
+    # Requires Docker (or use local_fallback for testing).
+    isolation_mode: Literal["thread_pool", "boxlite"] = "thread_pool"
+    boxlite_image: str | None = None
+    boxlite_min_pool: int = 1
+    boxlite_max_pool: int = 4
+    boxlite_cpu_count: int = 2
+    boxlite_mem_mib: int = 2048
+    boxlite_workspace_mount_mode: Literal["bind", "sync"] = "bind"
+    boxlite_local_fallback: bool = True
+
     def model_ids(self) -> list[str]:
         return [m.strip() for m in self.models.split(",") if m.strip()]
 
@@ -66,5 +88,20 @@ class Settings(BaseSettings):
             max_requests_per_worker=self.max_requests_per_worker,
             reuse_runner=self.reuse_runner,
             request_timeout_seconds=self.request_timeout,
+            ready_timeout_seconds=self.ready_timeout,
+        )
+
+    def boxlite_pool_settings(self):
+        """Build BoxLitePoolSettings from server config (Phase 3)."""
+        from flowjet.core.backends.isolation.boxlite_pool import BoxLitePoolSettings
+
+        return BoxLitePoolSettings(
+            image=self.boxlite_image,
+            min_size=max(1, self.boxlite_min_pool),
+            max_size=max(self.boxlite_min_pool, self.boxlite_max_pool),
+            cpu_count=self.boxlite_cpu_count,
+            mem_mib=self.boxlite_mem_mib,
+            workspace_mount_mode=self.boxlite_workspace_mount_mode,
+            local_fallback=self.boxlite_local_fallback,
             ready_timeout_seconds=self.ready_timeout,
         )

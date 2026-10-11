@@ -1,8 +1,9 @@
 """Backend selection — ``FLOWJET_BACKEND`` (CLI) / ``FLOWJET_SERVER_BACKEND`` (server).
 
-The two surfaces default to different runtimes: the CLI builds one agent per
-invocation and runs on the host runtime (``soothe``); the server needs a
-dual-mode agent that soothe does not expose yet, so it stays on ``nano``.
+Both surfaces default to the host runtime (``soothe``): the CLI builds one agent
+per invocation, and the server uses ``ModeRoutedSootheAgent`` for per-request
+mode switching (one host agent per mode, lazily built). Set
+``FLOWJET_SERVER_BACKEND=nano`` to fall back to the nano runtime.
 """
 
 from __future__ import annotations
@@ -61,18 +62,18 @@ class _FakeAgent:
 # ---------------------------------------------------------------------------
 
 
-def test_defaults_are_soothe_for_cli_and_nano_for_server(
+def test_defaults_are_soothe_for_both_surfaces(
     _clean_env: None,
 ) -> None:
     assert resolve_backend(Surface.CLI) is Backend.SOOTHE
-    assert resolve_backend(Surface.SERVER) is Backend.NANO
+    assert resolve_backend(Surface.SERVER) is Backend.SOOTHE
 
 
 def test_env_switches_each_surface_independently(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(CLI_BACKEND_ENV, "nano")
-    monkeypatch.setenv(SERVER_BACKEND_ENV, "soothe")
+    monkeypatch.setenv(SERVER_BACKEND_ENV, "nano")
     assert resolve_backend(Surface.CLI) is Backend.NANO
-    assert resolve_backend(Surface.SERVER) is Backend.SOOTHE
+    assert resolve_backend(Surface.SERVER) is Backend.NANO
 
 
 def test_values_are_case_and_whitespace_insensitive(monkeypatch: pytest.MonkeyPatch) -> None:
