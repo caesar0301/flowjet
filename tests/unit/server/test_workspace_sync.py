@@ -553,9 +553,7 @@ async def test_checkpoint_mirrors_agent_outputs_to_content_root(tmp_path: Path):
 
     # close_session → checkpoint → dirty files mirrored to the content root.
     await resolver.close_session("session-1", path)
-    assert (
-        content_root / "output" / "analysis.md"
-    ).read_bytes() == b"agent analysis"
+    assert (content_root / "output" / "analysis.md").read_bytes() == b"agent analysis"
     # And the sync state (manifest) exists under the sync root for ws-beta.
     assert (sync_root / "runs" / ws_id / "manifest.json").exists()
     await resolver.shutdown()
