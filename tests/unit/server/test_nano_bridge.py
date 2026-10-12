@@ -77,7 +77,11 @@ async def test_token_chunks_produce_one_progress_milestone():
 
     completed = [e for e in events if isinstance(e, RunCompleted)]
     assert [e.output_text for e in completed] == ["Hello streaming world"]
-    assert [e.delta for e in events if isinstance(e, OutputTextDelta)] == ["Hello streaming world"]
+    # Streaming: the committed text is split into word-boundary chunks so
+    # protocol projections (ACP, OpenAI SSE) forward multiple deltas.
+    deltas = [e.delta for e in events if isinstance(e, OutputTextDelta)]
+    assert "".join(deltas) == "Hello streaming world"
+    assert len(deltas) > 1, "committed text should be split into multiple deltas"
 
 
 @pytest.mark.asyncio

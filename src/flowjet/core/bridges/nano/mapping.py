@@ -338,6 +338,36 @@ def _extract_ask_user_interrupts(
     return tuple(questions), tuple(interrupt_ids)
 
 
+def _stream_deltas(text: str) -> list[OutputTextDelta]:
+    """Split committed text into word-boundary chunks for streaming.
+
+    Protocol projections (ACP ``agent_message_chunk``, OpenAI SSE
+    ``response.output_text.delta``) forward each delta as a separate
+    notification.  Splitting on word boundaries (keeping the trailing
+    space) gives the client a natural token-by-token feel without the
+    complexity of true incremental streaming (which would require a
+    discard/reset mechanism for narration text that tool calls
+    supersede).
+    """
+    if not text:
+        return []
+    if len(text) <= 1:
+        return [OutputTextDelta(delta=text)]
+    deltas: list[OutputTextDelta] = []
+    pos = 0
+    while pos < len(text):
+        # Find the next space after the current position.
+        end = text.find(" ", pos)
+        if end == -1:
+            deltas.append(OutputTextDelta(delta=text[pos:]))
+            break
+        # Include the space in this chunk.
+        end += 1
+        deltas.append(OutputTextDelta(delta=text[pos:end]))
+        pos = end
+    return deltas
+
+
 async def iter_nano_runtime_events(
     agent: Any,
     *,
@@ -535,7 +565,12 @@ async def iter_nano_runtime_events(
                 )
 
         if answer:
-            yield OutputTextDelta(delta=answer)
+            # Stream the committed text in word-boundary chunks so protocol
+            # projections (ACP, OpenAI SSE) can forward multiple
+            # agent_message_chunk / response.output_text.delta events instead
+            # of a single monolithic one.
+            for delta in _stream_deltas(answer):
+                yield delta
         yield RunCompleted(output_text=answer)
     except Exception as exc:  # noqa: BLE001
         yield RunFailed(message=str(exc) or type(exc).__name__)

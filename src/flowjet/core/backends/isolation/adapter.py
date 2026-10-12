@@ -61,9 +61,7 @@ class FakeAgentAdapter:
         meta = req.metadata or {}
         if meta.get("emit_tools"):
             yield ToolStarted(tool="search", call_id="call_1")
-            yield ToolCompleted(
-                tool="search", ok=True, call_id="call_1", duration_ms=12
-            )
+            yield ToolCompleted(tool="search", ok=True, call_id="call_1", duration_ms=12)
 
         # Write a marker file so concurrency tests can assert workspace isolation.
         marker = req.workspace / "last_input.txt"
