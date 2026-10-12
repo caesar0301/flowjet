@@ -18,14 +18,19 @@ from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from acp.helpers import (
+    plan_entry,
     start_tool_call,
+    text_block,
     update_agent_message_text,
+    update_agent_thought,
     update_agent_thought_text,
+    update_plan,
     update_tool_call,
 )
 
 from flowjet.core.events import (
     InterruptWaiting,
+    Narration,
     OutputTextDelta,
     Progress,
     RunCompleted,
@@ -53,6 +58,171 @@ def _extract_prompt_text(prompt: list[Any]) -> str:
         if isinstance(text, str) and text:
             parts.append(text)
     return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Tool-kind inference (Enhancement 4)
+# ---------------------------------------------------------------------------
+
+_READ_TOOLS = frozenset(
+    {
+        "read_file",
+        "read",
+        "cat",
+        "grep",
+        "glob",
+        "ls",
+        "list",
+        "find",
+        "search",
+        "head",
+        "tail",
+    }
+)
+_EDIT_TOOLS = frozenset(
+    {
+        "write_file",
+        "write",
+        "edit_file",
+        "edit",
+        "create_file",
+        "create",
+        "delete_file",
+        "delete",
+        "remove",
+        "move_file",
+        "move",
+        "rename",
+        "mkdir",
+        "rmdir",
+    }
+)
+_EXECUTE_TOOLS = frozenset(
+    {
+        "run_command",
+        "run",
+        "execute",
+        "exec",
+        "bash",
+        "shell",
+        "terminal",
+        "subprocess",
+    }
+)
+_SEARCH_TOOLS = frozenset(
+    {
+        "web_search",
+        "search_web",
+        "fetch",
+        "http_get",
+        "http_post",
+        "curl",
+        "wget",
+    }
+)
+
+
+def _infer_tool_kind(tool_name: str) -> str:
+    """Map a tool name to an ACP ``ToolKind``.
+
+    ACP supports ``read``, ``edit``, ``delete``, ``move``, ``search``,
+    ``execute``, ``think``, ``fetch``, ``switch_mode``, ``other``.  We infer
+    the kind from the tool name so ACP clients can distinguish read tools
+    (e.g. ``read_file``, ``grep``) from edit tools (e.g. ``write_file``,
+    ``edit_file``) and execute tools (e.g. ``run_command``).
+    """
+    name = tool_name.lower().strip()
+    if name in _READ_TOOLS:
+        return "read"
+    if name in _EDIT_TOOLS:
+        return "edit"
+    if name in _EXECUTE_TOOLS:
+        return "execute"
+    if name in _SEARCH_TOOLS:
+        return "fetch"
+    return "other"
+
+
+# ---------------------------------------------------------------------------
+# Plan projection (Enhancement 5)
+# ---------------------------------------------------------------------------
+
+
+def _raw_to_plan_entries(raw: dict[str, Any] | None) -> list[Any] | None:
+    """Convert a ``soothe.step.progress`` raw payload to ACP plan entries.
+
+    The soothe runtime emits todo/step progress as ``Progress`` events with
+    ``raw`` payloads containing ``soothe.step.progress`` data (step number,
+    total steps, current todo text).  This projects that structured data
+    into ACP ``AgentPlanUpdate`` entries so ACP clients can render a
+    structured plan/todo list.
+
+    Returns ``None`` when the raw payload is not a step-progress event.
+    """
+    if not raw:
+        return None
+    raw_type = str(raw.get("type") or "").strip()
+    if raw_type != "soothe.step.progress":
+        return None
+    steps = raw.get("steps")
+    todo = str(raw.get("todo") or "").strip()
+    step = raw.get("step")
+    done = raw.get("done")
+    status = str(raw.get("status") or "").strip()
+    if not steps or not isinstance(steps, int):
+        return None
+    # Build a list of plan entries representing the todo list state.
+    entries: list[Any] = []
+    for i in range(1, steps + 1):
+        if i == step:
+            entry_status = (
+                status if status in ("pending", "in_progress", "completed") else "in_progress"
+            )
+            content = todo or f"Step {i}"
+        elif done is not None and isinstance(done, int) and i <= done:
+            entry_status = "completed"
+            content = f"Step {i}"
+        else:
+            entry_status = "pending"
+            content = f"Step {i}"
+        entries.append(
+            plan_entry(
+                content=content,
+                priority="medium",
+                status=entry_status,  # type: ignore[arg-type]
+            )
+        )
+    return entries if entries else None
+
+
+# ---------------------------------------------------------------------------
+# Tool content helpers (Enhancement 3)
+# ---------------------------------------------------------------------------
+
+
+def _tool_locations(args: dict[str, Any] | None) -> list[Any] | None:
+    """Extract ACP ``ToolCallLocation`` entries from tool args.
+
+    Looks for common path-like keys (``file_path``, ``path``,
+    ``target_file``) and converts them to ``ToolCallLocation`` objects.
+    """
+    if not args:
+        return None
+    from acp.schema import ToolCallLocation
+
+    locations: list[Any] = []
+    for key in ("file_path", "path", "target_file", "directory", "dir"):
+        value = args.get(key)
+        if isinstance(value, str) and value.strip():
+            locations.append(ToolCallLocation(path=value))
+    return locations if locations else None
+
+
+def _tool_raw_input(args: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Return the tool args as ``raw_input`` for ACP tool calls."""
+    if not args:
+        return None
+    return args
 
 
 class FlowJetAcpAgent:
@@ -187,6 +357,10 @@ class FlowJetAcpAgent:
         session_cwd = self._session_cwd.get(session_id)
         if session_cwd:
             metadata["workspace"] = session_cwd
+        # Pass through emit_tools so the fake adapter emits tool-call events
+        # during E2E testing (the real nano adapter ignores this flag).
+        if kwargs.get("emit_tools"):
+            metadata["emit_tools"] = True
 
         request = RunRequest(
             model=model,
@@ -212,29 +386,66 @@ class FlowJetAcpAgent:
                             ),
                         )
                 elif isinstance(event, Progress):
-                    if client is not None:
+                    # Enhancement 5: project step-progress raw payloads into
+                    # ACP AgentPlanUpdate so clients can render a structured
+                    # plan/todo list.
+                    plan_entries = _raw_to_plan_entries(event.raw)
+                    if client is not None and plan_entries is not None:
                         await client.session_update(
                             session_id,
-                            update_agent_thought_text(event.message),
+                            update_plan(plan_entries),
+                        )
+                    # Enhancement 6: pass the raw payload through to the
+                    # agent_thought_chunk _meta so ACP clients that understand
+                    # the soothe vocabulary can render richer status lines.
+                    if client is not None:
+                        thought = update_agent_thought(text_block(event.message))
+                        if event.raw:
+                            thought.field_meta = event.raw
+                        await client.session_update(session_id, thought)
+                elif isinstance(event, Narration):
+                    # Enhancement 1: stream live narration (uncommitted text
+                    # between tool calls) as agent_thought_chunk so ACP clients
+                    # see the agent's intermediate reasoning ("Let me look that
+                    # up.") instead of silence until the final answer.
+                    if client is not None and event.text:
+                        await client.session_update(
+                            session_id,
+                            update_agent_thought_text(event.text),
                         )
                 elif isinstance(event, ToolStarted):
+                    # Enhancement 3: pass tool args as raw_input and extract
+                    # file-path locations so ACP clients can show rich tool
+                    # metadata (file paths, diffs, terminal refs).
+                    # Enhancement 4: infer tool kind (read/edit/execute/search)
+                    # from the tool name instead of always "other".
                     if client is not None:
                         await client.session_update(
                             session_id,
                             start_tool_call(
                                 tool_call_id=event.call_id or event.tool,
                                 title=event.tool,
-                                kind="other",
+                                kind=_infer_tool_kind(event.tool),  # type: ignore[arg-type]
                                 status="in_progress",
+                                locations=_tool_locations(event.args),
+                                raw_input=_tool_raw_input(event.args),
                             ),
                         )
                 elif isinstance(event, ToolCompleted):
+                    # Enhancement 3: pass tool result detail/preview as
+                    # raw_output so ACP clients can show tool results inline.
                     if client is not None:
+                        raw_output = None
+                        if event.detail:
+                            raw_output = {"detail": event.detail, "preview": event.preview}
+                        elif event.preview:
+                            raw_output = {"preview": event.preview}
                         await client.session_update(
                             session_id,
                             update_tool_call(
                                 tool_call_id=event.call_id or event.tool,
                                 status="completed" if event.ok else "failed",
+                                raw_output=raw_output,
                             ),
                         )
                 elif isinstance(event, OutputTextDelta):

@@ -15,15 +15,17 @@ FlowJet can build its agent two ways:
 
 The two surfaces switch **independently**, because they do not share the same
 constraints: the CLI builds one agent per invocation, while the server needs a
-dual-mode agent (AGENT + ASK graphs selected per request) — an API soothe does
-not expose today. Hence the defaults differ:
+dual-mode agent (AGENT + ASK graphs selected per request). The server now uses
+``ModeRoutedSootheAgent`` — one host agent per mode, lazily built — to provide
+dual-mode routing on the soothe backend. Hence both surfaces default to
+``soothe``:
 
 * ``FLOWJET_BACKEND`` (CLI) — default ``soothe``.
-* ``FLOWJET_SERVER_BACKEND`` (HTTP/ACP) — default ``nano``.
+* ``FLOWJET_SERVER_BACKEND`` (HTTP/ACP) — default ``soothe``.
 
 Both accept ``soothe`` or ``nano`` (case-insensitive); anything else is a hard
 error rather than a silent fallback, so a typo can never quietly run the wrong
-runtime.
+runtime. Set ``FLOWJET_SERVER_BACKEND=nano`` to fall back to the nano runtime.
 """
 
 from __future__ import annotations
@@ -47,9 +49,10 @@ class Backend(StrEnum):
 #: CLI builds one agent per invocation; the host runtime is the default there.
 DEFAULT_CLI_BACKEND = Backend.SOOTHE
 
-#: The server needs per-request mode switching (dual-mode agent), which soothe
-#: does not expose; it stays on nano until host dual-mode exists.
-DEFAULT_SERVER_BACKEND = Backend.NANO
+#: Both surfaces default to the host runtime (``soothe``). The server uses
+#: ``ModeRoutedSootheAgent`` for per-request mode switching (one host agent per
+#: mode, lazily built). Set ``FLOWJET_SERVER_BACKEND=nano`` to fall back to nano.
+DEFAULT_SERVER_BACKEND = Backend.SOOTHE
 
 _BACKENDS: dict[str, Backend] = {b.value: b for b in Backend}
 

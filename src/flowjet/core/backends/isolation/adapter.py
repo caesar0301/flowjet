@@ -12,6 +12,8 @@ from flowjet.core.events import (
     RunCompleted,
     RunStarted,
     RuntimeEvent,
+    ToolCompleted,
+    ToolStarted,
     UsageInfo,
 )
 
@@ -53,6 +55,14 @@ class FakeAgentAdapter:
         yield Progress(stage="Working", message="Thinking…")
         if self.delay_s > 0:
             await asyncio.sleep(self.delay_s)
+
+        # Emit tool events when the caller requests them via metadata
+        # (mirrors FakeRuntimeBackend's emit_tools handling).
+        meta = req.metadata or {}
+        if meta.get("emit_tools"):
+            yield ToolStarted(tool="search", call_id="call_1")
+            yield ToolCompleted(tool="search", ok=True, call_id="call_1", duration_ms=12)
+
         # Write a marker file so concurrency tests can assert workspace isolation.
         marker = req.workspace / "last_input.txt"
         marker.write_text(req.input_text, encoding="utf-8")

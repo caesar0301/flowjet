@@ -1,4 +1,10 @@
-"""RuntimeBackend that admits, resolves workspaces, and submits to ThreadPool."""
+"""RuntimeBackend that admits, resolves workspaces, and submits to an isolation pool.
+
+Phase 1–2 use :class:`~flowjet.core.backends.isolation.pool.ThreadPool`.
+Phase 3 adds :class:`~flowjet.core.backends.isolation.boxlite_pool.BoxLiteIsolationPool`
+for Docker-container-based session isolation.  Both implement the
+:class:`~flowjet.core.backends.isolation.isolation_pool.IsolationPool` protocol.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +23,17 @@ from flowjet.core.events import ModelInfo, RunRequest, RuntimeEvent
 
 
 class IsolatingRuntimeBackend:
-    """Pool-backed RuntimeBackend for the soothe-nano AgentAdapter."""
+    """Pool-backed RuntimeBackend for the soothe/nano AgentAdapter.
+
+    The workspace resolver is injectable (Phase 2): callers can pass a
+    :class:`SyncAwareWorkspaceResolver` to enable fsspec workspace sync.
+    The default is the local-only :class:`WorkspaceResolver` (Phase 1).
+
+    The isolation pool is injectable (Phase 3): callers can pass a
+    :class:`~flowjet.core.backends.isolation.boxlite_pool.BoxLiteIsolationPool`
+    to enable Docker-container-based session isolation.  The default is the
+    in-process :class:`ThreadPool` (Phase 1/2).
+    """
 
     def __init__(
         self,
@@ -27,13 +43,14 @@ class IsolatingRuntimeBackend:
         pool_settings: PoolSettings | None = None,
         home: Path | str | None = None,
         admission: SessionAdmission | None = None,
-        pool: ThreadPool | None = None,
+        pool: Any | None = None,
         allow_external_workspace: bool = False,
         mode_gate: InteractionModeGate | None = None,
+        workspace_resolver: WorkspaceResolver | None = None,
     ) -> None:
         self._models = models or ["default"]
         home_path = Path(home).expanduser() if home else Path.home() / ".flowjet"
-        self._workspaces = WorkspaceResolver(
+        self._workspaces = workspace_resolver or WorkspaceResolver(
             home_path, allow_external_workspace=allow_external_workspace
         )
         self._admission = admission or SessionAdmission()
@@ -42,7 +59,7 @@ class IsolatingRuntimeBackend:
         self._started = False
 
     @property
-    def pool(self) -> ThreadPool:
+    def pool(self) -> Any:
         return self._pool
 
     @property
@@ -90,9 +107,18 @@ class IsolatingRuntimeBackend:
             metadata=metadata,
         )
         async with self._admission.admit(session):
-            async for event in self._pool.submit(isolated):
-                yield event
+            await self._workspaces.open_session(session, workspace)
+            try:
+                async for event in self._pool.submit(isolated):
+                    yield event
+            finally:
+                await self._workspaces.close_session(session, workspace)
 
     async def shutdown(self) -> None:
         await self._pool.shutdown()
+        shutdown_ws = getattr(self._workspaces, "shutdown", None)
+        if shutdown_ws is not None:
+            result = shutdown_ws()
+            if hasattr(result, "__await__"):
+                await result
         self._started = False
