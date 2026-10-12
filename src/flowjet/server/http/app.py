@@ -82,6 +82,7 @@ def _build_workspace_resolver(settings: Settings) -> Any:
         sync_source=sync_source,
         sync_config_path=settings.workspace_sync_config,
         allow_external_workspace=settings.allow_external_workspace,
+        content_source=settings.workspace_content_source,
     )
 
 

@@ -21,6 +21,12 @@ ARG PYTHON_BASE=registry.cn-hangzhou.aliyuncs.com/lacogito/python:3.12-bookworm
 # =============================================================================
 FROM ${PYTHON_BASE} AS deps
 
+# Optional: local wheels to prefer over the registry (e.g. a locally-built
+# soothe with unreleased changes). Mount the directory as build context
+# `wheels/` and set LOCAL_WHEELS=1; uv then resolves soothe/soothe-sdk from
+# these wheels before falling back to PyPI.
+ARG LOCAL_WHEELS=0
+
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     UV_COMPILE_BYTECODE=1 \
@@ -40,13 +46,21 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
 # Metadata first so dependency layer stays cacheable across source edits
 COPY pyproject.toml uv.lock README.md /app/
 COPY src /app/src
+# Local wheel overrides (optional; present only in LOCAL_WHEELS=1 builds)
+COPY wheels* /tmp/wheels/
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     set -eux; \
     uv venv /app/.venv; \
     # The image only needs the HTTP service; --extra server pulls fastapi,
-    # uvicorn and agent-client-protocol (the CLI half needs none of them).
-    UV_PROJECT_ENVIRONMENT=/app/.venv uv sync --no-dev --frozen --no-editable --extra server
+    # uvicorn, agent-client-protocol, the S3 sync backend, and the boxlite
+    # microVM SDK (session isolation).
+    UV_PROJECT_ENVIRONMENT=/app/.venv uv sync --no-dev --frozen --no-editable --extra server; \
+    if [ "$LOCAL_WHEELS" = "1" ]; then \
+      # Force-install local wheel overrides (e.g. a locally-built soothe with
+      # unreleased changes) on top of the locked resolution.
+      uv pip install --python /app/.venv /tmp/wheels/*.whl; \
+    fi
 
 ENV PATH="/app/.venv/bin:${PATH}"
 

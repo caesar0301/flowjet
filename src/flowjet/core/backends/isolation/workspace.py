@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import re
 import shutil
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,37 @@ from typing import Any
 from flowjet.core.backends.isolation.errors import IsolationError
 
 logger = logging.getLogger(__name__)
+
+# A bare single-segment workspace id (e.g. a triarch workspace UUID). Used to
+# key per-workspace sync runs; anything else (paths, empty, odd characters)
+# falls back to the session-hash workspace. Mirrors soothe's run_id rules.
+_WORKSPACE_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$")
+
+
+def _run_id_for_session(session: str) -> str:
+    """Session-scoped fallback run id (pre-Phase-2 behaviour)."""
+    digest = hashlib.sha256(session.encode("utf-8")).hexdigest()[:16]
+    return f"ws_{digest}"
+
+
+def _workspace_id_from_metadata(metadata: dict[str, Any] | None) -> str | None:
+    """Extract a bare workspace id from metadata["workspace"] (the ACP cwd).
+
+    Only single-segment ids matching the run_id whitelist count as triarch
+    workspace ids; path-shaped cwd values (flowjet-native desktop clients
+    send absolute project paths) are NOT workspace ids — the caller falls
+    back to a session-scoped workspace for them.
+    """
+    meta = metadata or {}
+    override = meta.get("workspace")
+    if not isinstance(override, str):
+        return None
+    candidate = override.strip()
+    if "/" in candidate or "\\" in candidate or candidate in (".", ".."):
+        return None
+    if not _WORKSPACE_ID_RE.match(candidate):
+        return None
+    return candidate
 
 
 def _sqlite_state_store_factory(*, loop_id: str, workspace_dir: Path) -> Any:
@@ -108,11 +140,13 @@ class SyncAwareWorkspaceResolver(WorkspaceResolver):
         sync_source: str | None = None,
         sync_config: str | None = None,
         cas_root: str | Path | None = None,
+        content_source: str | None = None,
     ) -> None:
         super().__init__(home, allow_external_workspace=allow_external_workspace)
         self._sync_source = sync_source
         self._sync_config = sync_config
         self._cas_root = Path(cas_root).expanduser() if cas_root else self._home / "data" / "cas"
+        self._content_source = content_source
         self._manager: Any | None = None
         self._sync_backend: Any | None = None
         self._restore_cas: Any | None = None
@@ -143,13 +177,46 @@ class SyncAwareWorkspaceResolver(WorkspaceResolver):
             cas_root=self._cas_root,
             backend=backend,
             state_store_factory=_sqlite_state_store_factory,
+            content_backend_factory=self._content_backend_factory(),
         )
         logger.info(
-            "SyncAwareWorkspaceResolver initialized: source=%s, cas=%s",
+            "SyncAwareWorkspaceResolver initialized: source=%s, cas=%s, content=%s",
             self._sync_source,
             self._cas_root,
+            self._content_source,
         )
         return self._manager
+
+    def _content_backend_factory(self) -> Any | None:
+        """Build a per-run content backend factory (dual-source sync).
+
+        ``content_source`` is a URI template with a ``{workspace}``
+        placeholder (e.g. ``s3://triarch/workspaces/{workspace}``). At
+        ``manager.open(run_id)`` the placeholder is substituted with the
+        run_id (triarch workspace id, or the session-hash fallback),
+        producing an independent backend per workspace. Returns ``None``
+        (content mirroring disabled) when no template is configured or the
+        template has no placeholder (a static root is still per-run
+        useless, so treat it as disabled).
+        """
+        template = self._content_source
+        if not template or "{workspace}" not in template:
+            return None
+
+        def factory(run_id: str) -> Any | None:
+            uri = template.format(workspace=run_id)
+            scheme = uri.split("://", 1)[0].lower()
+            if scheme == "file":
+                import fsspec
+                from soothe.workspace.sync.backends.fsspec import FsspecSyncBackend
+
+                fs, root = fsspec.url_to_fs(uri)
+                return FsspecSyncBackend(fs=fs, root=str(root))
+            from soothe.workspace.sync import construct_sync_backend
+
+            return construct_sync_backend(uri, config=self._load_sync_config())
+
+        return factory
 
     def _construct_sync_backend(self, config: dict[str, Any] | None) -> Any:
         """Build the fsspec sync backend for ``_sync_source``.
@@ -186,10 +253,12 @@ class SyncAwareWorkspaceResolver(WorkspaceResolver):
         """Resolve workspace path — delegates to base when sync is disabled."""
         if self._sync_source is None:
             return super().resolve(session, metadata)
-        # When sync is enabled, use a deterministic session-keyed path under
-        # the workspaces root so WorkspaceManager.open() can find it.
-        digest = hashlib.sha256(session.encode("utf-8")).hexdigest()[:16]
-        path = self._home / "data" / "workspaces" / f"ws_{digest}"
+        # Phase 2: a bare workspace id in the ACP cwd (triarch backend sends
+        # the workspaceId as cwd) keys a per-workspace sync run — all chats of
+        # the same triarch workspace share one synced workspace. Anything
+        # else falls back to the session-scoped hash (Phase 1 behaviour).
+        run_id = _workspace_id_from_metadata(metadata) or _run_id_for_session(session)
+        path = self._home / "data" / "workspaces" / run_id
         path.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -199,15 +268,30 @@ class SyncAwareWorkspaceResolver(WorkspaceResolver):
         if manager is None:
             return
 
-        # Use the session hash as the run_id key for WorkspaceManager.
-        digest = hashlib.sha256(session.encode("utf-8")).hexdigest()[:16]
-        run_id = f"ws_{digest}"
+        # The run_id is the workspace directory name — resolve() decided it
+        # (triarch workspace id or session-hash fallback), so derive it here
+        # for perfect consistency across resolve/open/close.
+        run_id = workspace.name
 
         # If a workspace is already open for this session (reuse), skip.
         if run_id in self._open_workspaces:
             return
 
         ws = await manager.open(run_id)
+        # Dual-source sync, read path: materialize the content root (e.g.
+        # triarch workspace materials) into the workspace BEFORE replaying
+        # checkpoint state, so the agent sees both its prior outputs and the
+        # latest backend-uploaded files.
+        if hasattr(ws, "materialize_content"):
+            try:
+                await ws.materialize_content()
+            except Exception:
+                logger.warning(
+                    "Content materialization failed for run %s; continuing with "
+                    "checkpoint state only",
+                    run_id,
+                    exc_info=True,
+                )
         await self._restore_prior_state(ws)
         self._open_workspaces[run_id] = ws
 
@@ -283,8 +367,7 @@ class SyncAwareWorkspaceResolver(WorkspaceResolver):
         if self._manager is None:
             return
 
-        digest = hashlib.sha256(session.encode("utf-8")).hexdigest()[:16]
-        run_id = f"ws_{digest}"
+        run_id = workspace.name
 
         ws = self._open_workspaces.pop(run_id, None)
         if ws is None:
@@ -315,6 +398,7 @@ class SyncAwareWorkspaceResolver(WorkspaceResolver):
         sync_source: str,
         sync_config_path: str | None = None,
         allow_external_workspace: bool = False,
+        content_source: str | None = None,
     ) -> SyncAwareWorkspaceResolver:
         """Build a resolver from server settings (called by ``build_backend``)."""
         return cls(
@@ -323,4 +407,5 @@ class SyncAwareWorkspaceResolver(WorkspaceResolver):
             sync_source=sync_source,
             sync_config=sync_config_path,
             cas_root=cas_root,
+            content_source=content_source,
         )

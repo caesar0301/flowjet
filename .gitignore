@@ -255,3 +255,5 @@ Temporary Items
 # Claude Code session-local
 .claude/
 .codebuddy/
+# local wheel overrides for docker build (flowjet[boxlite] + local soothe)
+wheels/*.whl

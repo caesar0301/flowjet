@@ -31,7 +31,7 @@ streaming API to that protocol:
 
 Requirements (fail loudly at ``start()`` when unmet):
 
-- ``pip install boxlite`` (flowjet extra: ``flowjet-server[boxlite]``)
+- ``pip install flowjet[server]`` (the boxlite SDK ships in the `server` extra)
 - Host virtualization: ``/dev/kvm`` accessible on Linux, Hypervisor.framework
   on macOS. When the server itself runs containerized, ``/dev/kvm`` must be
   passed through to the container.
@@ -57,7 +57,6 @@ from flowjet.core.backends.isolation.adapter import AdapterFactory
 from flowjet.core.backends.isolation.boxlite_protocol import (
     decode_event,
     encode_request,
-    make_control,
     parse_frame,
 )
 from flowjet.core.backends.isolation.pool import PoolMetrics
@@ -77,7 +76,7 @@ def _import_boxlite() -> Any:
     except ImportError as exc:  # pragma: no cover - environment-dependent
         raise RuntimeError(
             "isolation_mode='boxlite' requires the external boxlite runtime "
-            "(pip install 'flowjet[boxlite]' or pip install boxlite) and host "
+            "(pip install 'flowjet[server]' or pip install boxlite) and host "
             "virtualization (/dev/kvm on Linux; Hypervisor.framework on macOS). "
             "Alternatively set FLOWJET_ISOLATION_MODE=thread_pool."
         ) from exc
