@@ -126,7 +126,7 @@ class SyncAwareWorkspaceResolver(WorkspaceResolver):
         if self._manager is not None:
             return self._manager
 
-        from soothe.workspace.sync import WorkspaceManager, construct_sync_backend
+        from soothe.workspace.sync import WorkspaceManager
 
         config = self._load_sync_config()
         backend = self._construct_sync_backend(config)
@@ -162,6 +162,9 @@ class SyncAwareWorkspaceResolver(WorkspaceResolver):
 
             fs, root = fsspec.url_to_fs(self._sync_source)
             return FsspecSyncBackend(fs=fs, root=str(root))
+
+        from soothe.workspace.sync import construct_sync_backend
+
         return construct_sync_backend(self._sync_source, config=config)
 
     def _load_sync_config(self) -> dict[str, Any] | None:
