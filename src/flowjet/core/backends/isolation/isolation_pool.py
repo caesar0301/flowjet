@@ -1,6 +1,6 @@
 """IsolationPool protocol — the common surface for ThreadPool and BoxLitePool.
 
-Phase 3 introduces :class:`BoxLiteIsolationPool` as an alternative to
+Phase 3 introduces :class:`BoxLiteVMIsolationPool` as an alternative to
 :class:`~flowjet.core.backends.isolation.pool.ThreadPool`.  Both implement
 this protocol so :class:`IsolatingRuntimeBackend` can accept either.
 """

@@ -1,8 +1,9 @@
 """RuntimeBackend that admits, resolves workspaces, and submits to an isolation pool.
 
 Phase 1–2 use :class:`~flowjet.core.backends.isolation.pool.ThreadPool`.
-Phase 3 adds :class:`~flowjet.core.backends.isolation.boxlite_pool.BoxLiteIsolationPool`
-for Docker-container-based session isolation.  Both implement the
+Phase 3 adds :class:`~flowjet.core.backends.isolation.boxlite_vm_pool.BoxLiteVMIsolationPool`
+for microVM-per-workspace session isolation via the external boxlite runtime.
+Both implement the
 :class:`~flowjet.core.backends.isolation.isolation_pool.IsolationPool` protocol.
 """
 
@@ -30,8 +31,8 @@ class IsolatingRuntimeBackend:
     The default is the local-only :class:`WorkspaceResolver` (Phase 1).
 
     The isolation pool is injectable (Phase 3): callers can pass a
-    :class:`~flowjet.core.backends.isolation.boxlite_pool.BoxLiteIsolationPool`
-    to enable Docker-container-based session isolation.  The default is the
+    :class:`~flowjet.core.backends.isolation.boxlite_vm_pool.BoxLiteVMIsolationPool`
+    to enable microVM-per-workspace session isolation.  The default is the
     in-process :class:`ThreadPool` (Phase 1/2).
     """
 

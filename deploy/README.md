@@ -54,7 +54,7 @@ Services bound to localhost only. PostgreSQL uses default credentials (postgres/
 
 ## Config
 
-`nano.yml` uses the DashScope (OpenAI-compatible) provider with `${ENV_VAR}` substitution and PostgreSQL + pgvector persistence. It is mounted over the image's baked default (`/var/lib/soothe/config/nano.yml`), which uses SQLite for local development — the mount switches the whole runtime to Postgres mode for the container stack.
+`nano.yml` uses the DashScope (OpenAI-compatible) provider with `${ENV_VAR}` substitution and PostgreSQL + pgvector persistence. It is mounted over the image's baked default (`/flowjet/config/nano.yml`), which uses SQLite for local development — the mount switches the whole runtime to Postgres mode for the container stack.
 
 ## Security
 

@@ -36,9 +36,9 @@ def build_backend(settings: Settings) -> RuntimeBackend:
     local-only :class:`WorkspaceResolver` is used (Phase 1).
 
     When ``settings.isolation_mode`` is ``"boxlite"``, a
-    :class:`BoxLiteIsolationPool` is constructed and injected — enabling
-    Docker-container-based session isolation (Phase 3). Otherwise the
-    default in-process :class:`ThreadPool` is used (Phase 1/2).
+    :class:`BoxLiteVMIsolationPool` is constructed and injected — enabling
+    microVM-per-workspace sandboxing via the external boxlite runtime.
+    Otherwise the default in-process :class:`ThreadPool` is used.
     """
     backend = resolve_backend(Surface.SERVER)
     # Guard: boxlite isolation requires the soothe host runtime.  Catch the
@@ -89,17 +89,21 @@ def _build_isolation_pool(settings: Settings) -> Any:
     """Construct the isolation pool based on isolation mode settings.
 
     When ``isolation_mode`` is ``"boxlite"``, build a
-    :class:`BoxLiteIsolationPool` for Docker-container-based session
-    isolation (Phase 3). Otherwise return ``None`` so the backend uses
-    the default in-process :class:`ThreadPool` (Phase 1/2 behavior).
+    :class:`BoxLiteVMIsolationPool` for microVM-per-workspace sandboxing via
+    the external boxlite runtime. Otherwise return ``None`` so the backend
+    uses the default in-process :class:`ThreadPool`.
+
+    Construction is lightweight (no SDK import — that happens lazily at
+    ``pool.start()``) so building the backend never hard-fails in
+    environments without the SDK.
     """
     if settings.isolation_mode != "boxlite":
         return None
-    from flowjet.core.backends.isolation.boxlite_pool import (
-        BoxLiteIsolationPool,
+    from flowjet.core.backends.isolation.boxlite_vm_pool import (
+        BoxLiteVMIsolationPool,
     )
 
-    return BoxLiteIsolationPool(
+    return BoxLiteVMIsolationPool(
         adapter_factory=_boxlite_adapter_factory(settings),
         settings=settings.boxlite_pool_settings(),
     )
@@ -108,14 +112,12 @@ def _build_isolation_pool(settings: Settings) -> Any:
 def _boxlite_adapter_factory(settings: Settings) -> Any:
     """Return a zero-arg adapter factory for the boxlite pool.
 
-    The adapter is constructed inside the container worker, not on the host.
-    This factory is a placeholder — the pool passes it to satisfy the
-    IsolationPool protocol but the worker builds its own adapter from the
-    resolved backend setting.
+    The adapter is constructed inside the worker VM, not in the server
+    process. This factory is a placeholder — the pool passes it to satisfy
+    the IsolationPool protocol but the worker builds its own adapter from
+    the resolved backend setting.
 
-    Returns a non-Fake callable so the pool's local-subprocess launcher does
-    not inject ``BOXLITE_ADAPTER=fake`` into the worker environment.  The
-    worker's ``_build_adapter()`` will build a real ``SootheAgentAdapter``
+    The worker's ``_build_adapter()`` builds a real ``SootheAgentAdapter``
     (or ``NanoAgentAdapter``) based on the resolved server backend.
     """
     from flowjet.core.bridges.soothe.adapter import SootheAgentAdapter

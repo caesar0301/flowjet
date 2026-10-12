@@ -60,19 +60,42 @@ class Settings(BaseSettings):
     workspace_sync_config: str | None = None
     workspace_cas_root: str = "~/.flowjet/data/cas"
 
-    # Isolation mode (Phase 3) — "thread_pool" (default, in-process) or
-    # "boxlite" (Docker-container-based session isolation).
-    # When set to "boxlite", each worker slot runs in its own container,
-    # providing filesystem and process isolation between sessions.
-    # Requires Docker (or use local_fallback for testing).
+    # Isolation mode — "thread_pool" (default, in-process) or "boxlite"
+    # (microVM-per-workspace sandboxing via the external boxlite runtime,
+    # https://github.com/boxlite-ai/boxlite). "boxlite" requires the boxlite
+    # SDK (flowjet[boxlite] extra) and host virtualization (/dev/kvm on
+    # Linux, Hypervisor.framework on macOS).
     isolation_mode: Literal["thread_pool", "boxlite"] = "thread_pool"
+    # OCI image for the in-VM worker container (typically the flowjet-server
+    # image — it carries the flowjet venv + worker entrypoint).
     boxlite_image: str | None = None
-    boxlite_min_pool: int = 1
+    # Max concurrently live worker VMs (across all workspaces). VMs are
+    # spawned on demand per workspace; there is no baseline pre-warm.
     boxlite_max_pool: int = 4
-    boxlite_cpu_count: int = 2
+    # Per-VM resource limits. Note: guest memory is mmap'd by the server
+    # process, so it counts against the server container's cgroup memory
+    # limit — size the container as concurrent VMs × (mem + ~512MiB) + server.
+    boxlite_vcpus: int = 2
     boxlite_mem_mib: int = 2048
-    boxlite_workspace_mount_mode: Literal["bind", "sync"] = "bind"
-    boxlite_local_fallback: bool = True
+    # Fixed in-VM mount point for the (single) workspace volume.
+    boxlite_workspace_container_path: str = "/workspace"
+    # Egress allow-list for worker VMs (comma-separated hosts). Empty = SDK
+    # default network (no egress filtering).
+    boxlite_allow_net: str | None = None
+    # Comma-separated env var names copied from the server environment into
+    # the worker VM (e.g. FLOWJET_NANO_CONFIG, FLOWJET_SERVER_BACKEND).
+    boxlite_pass_env: str | None = None
+    # Private OCI registry credentials for pulling the worker image
+    # (env-only; never in config files).
+    boxlite_registry_host: str | None = None
+    boxlite_registry_username: str | None = None
+    boxlite_registry_password: str | None = None
+    # Boxlite runtime data dir (image cache, VM state). None = SDK default.
+    # On the triarch deploy this should live on the flowjet-home volume
+    # (e.g. /flowjet/data/boxlite).
+    boxlite_home_dir: str | None = None
+    boxlite_idle_timeout: float = 300.0
+    boxlite_max_requests: int = 100
 
     def validate_isolation_compatibility(self, backend: str) -> None:
         """Raise ``ValueError`` if isolation settings are incompatible with the backend.
@@ -116,16 +139,29 @@ class Settings(BaseSettings):
         )
 
     def boxlite_pool_settings(self):
-        """Build BoxLitePoolSettings from server config (Phase 3)."""
-        from flowjet.core.backends.isolation.boxlite_pool import BoxLitePoolSettings
+        """Build BoxLiteVMSettings from server config."""
+        from flowjet.core.backends.isolation.boxlite_vm_pool import BoxLiteVMSettings
 
-        return BoxLitePoolSettings(
+        allow_net: list[str] | None = None
+        if self.boxlite_allow_net and self.boxlite_allow_net.strip():
+            allow_net = [h.strip() for h in self.boxlite_allow_net.split(",") if h.strip()]
+        pass_env: list[str] | None = None
+        if self.boxlite_pass_env and self.boxlite_pass_env.strip():
+            pass_env = [e.strip() for e in self.boxlite_pass_env.split(",") if e.strip()]
+
+        return BoxLiteVMSettings(
             image=self.boxlite_image,
-            min_size=max(1, self.boxlite_min_pool),
-            max_size=max(self.boxlite_min_pool, self.boxlite_max_pool),
-            cpu_count=self.boxlite_cpu_count,
+            max_size=max(1, self.boxlite_max_pool),
+            vcpus=self.boxlite_vcpus,
             mem_mib=self.boxlite_mem_mib,
-            workspace_mount_mode=self.boxlite_workspace_mount_mode,
-            local_fallback=self.boxlite_local_fallback,
+            workspace_container_path=self.boxlite_workspace_container_path,
+            allow_net=allow_net,
+            pass_env=pass_env,
+            registry_host=self.boxlite_registry_host,
+            registry_username=self.boxlite_registry_username,
+            registry_password=self.boxlite_registry_password,
+            home_dir=self.boxlite_home_dir,
+            idle_timeout_seconds=self.boxlite_idle_timeout,
+            max_requests_per_worker=self.boxlite_max_requests,
             ready_timeout_seconds=self.ready_timeout,
         )

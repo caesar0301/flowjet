@@ -24,7 +24,7 @@ FROM ${PYTHON_BASE} AS deps
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     UV_COMPILE_BYTECODE=1 \
-    SOOTHE_HOME=/var/lib/soothe
+    SOOTHE_HOME=/flowjet
 
 RUN sed -i 's|http://deb.debian.org|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
     && apt-get update \
@@ -61,8 +61,8 @@ LABEL org.opencontainers.image.title="FlowJet Server" \
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    SOOTHE_HOME=/var/lib/soothe \
-    FLOWJET_HOME=/var/lib/soothe \
+    SOOTHE_HOME=/flowjet \
+    FLOWJET_HOME=/flowjet \
     FLOWJET_HOST=0.0.0.0 \
     FLOWJET_PORT=8618
 
@@ -72,14 +72,14 @@ COPY --from=deps /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:${PATH}"
 
 # Default nano config, read by the service from $FLOWJET_HOME/config/nano.yml.
-RUN mkdir -p /var/lib/soothe/config
-COPY config/nano.yml /var/lib/soothe/config/nano.yml
+RUN mkdir -p /flowjet/config
+COPY config/nano.yml /flowjet/config/nano.yml
 
 RUN useradd --create-home --system flowjet \
-    && chown -R flowjet:flowjet /var/lib/soothe
+    && chown -R flowjet:flowjet /flowjet
 
 USER flowjet
-WORKDIR /var/lib/soothe
+WORKDIR /flowjet
 
 EXPOSE 8618/tcp
 

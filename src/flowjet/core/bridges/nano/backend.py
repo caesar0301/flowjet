@@ -76,7 +76,7 @@ def build_isolating_nano_backend(
 
     When ``pool`` is provided (Phase 3), it is used directly instead of
     constructing a new :class:`ThreadPool`.  This allows callers to inject
-    a :class:`BoxLiteIsolationPool` for container-based isolation.
+    a :class:`BoxLiteVMIsolationPool` for microVM-based isolation.
     """
     from flowjet.core.backends.isolation import IsolatingRuntimeBackend, PoolSettings
 

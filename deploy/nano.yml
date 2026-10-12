@@ -3,7 +3,7 @@
 # Mirrors ../soothe/deploy/nano.yml structure; keeps the DashScope provider
 # from config/nano.yml (flowjet-server default).
 #
-# Mounted at /var/lib/soothe/config/nano.yml (default agent path).
+# Mounted at /flowjet/config/nano.yml (default agent path).
 # Uses environment variable substitution (${ENV_VAR}).
 #
 # Required env vars (set in deploy/.env):

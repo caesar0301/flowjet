@@ -1,11 +1,11 @@
-"""Isolated runtime: thread-pool (Phase 1/2) and boxlite (Phase 3)."""
+"""Isolated runtime: thread-pool and boxlite microVM isolation."""
 
 from flowjet.core.backends.isolation.adapter import AgentAdapter, FakeAgentAdapter
 from flowjet.core.backends.isolation.admission import SessionAdmission
 from flowjet.core.backends.isolation.backend import IsolatingRuntimeBackend
-from flowjet.core.backends.isolation.boxlite_pool import (
-    BoxLiteIsolationPool,
-    BoxLitePoolSettings,
+from flowjet.core.backends.isolation.boxlite_vm_pool import (
+    BoxLiteVMIsolationPool,
+    BoxLiteVMSettings,
 )
 from flowjet.core.backends.isolation.errors import IsolationError
 from flowjet.core.backends.isolation.isolation_pool import IsolationPool
@@ -19,8 +19,8 @@ from flowjet.core.backends.isolation.workspace import (
 
 __all__ = [
     "AgentAdapter",
-    "BoxLiteIsolationPool",
-    "BoxLitePoolSettings",
+    "BoxLiteVMIsolationPool",
+    "BoxLiteVMSettings",
     "FakeAgentAdapter",
     "IsolatedRunRequest",
     "IsolatingRuntimeBackend",

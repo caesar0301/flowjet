@@ -43,6 +43,10 @@ server = [
     # S3/MinIO workspace sync backend
     "s3fs>=2024.6",
 ]
+# microVM-per-workspace session isolation (https://github.com/boxlite-ai/boxlite)
+boxlite = [
+    "boxlite>=0.1.0",
+]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=1.3.0",

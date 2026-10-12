@@ -79,7 +79,6 @@ def test_build_backend_raises_on_nano_with_boxlite(monkeypatch, tmp_path):
     monkeypatch.setenv("FLOWJET_SERVER_BACKEND", "nano")
     monkeypatch.setenv("FLOWJET_ISOLATION_MODE", "boxlite")
     monkeypatch.setenv("FLOWJET_HOME", str(tmp_path))
-    monkeypatch.setenv("FLOWJET_BOXLITE_LOCAL_FALLBACK", "true")
 
     s = Settings()
     with pytest.raises(ValueError, match="boxlite.*requires.*soothe"):
@@ -87,14 +86,18 @@ def test_build_backend_raises_on_nano_with_boxlite(monkeypatch, tmp_path):
 
 
 def test_build_backend_succeeds_on_soothe_with_boxlite(monkeypatch, tmp_path):
-    """build_backend() works when soothe + boxlite are configured."""
+    """build_backend() works when soothe + boxlite are configured.
+
+    Pool construction is lightweight (SDK import is deferred to pool.start()),
+    so this succeeds even without the boxlite SDK installed.
+    """
     from flowjet.server.config import Settings
     from flowjet.server.http.app import build_backend
 
     monkeypatch.setenv("FLOWJET_SERVER_BACKEND", "soothe")
     monkeypatch.setenv("FLOWJET_ISOLATION_MODE", "boxlite")
     monkeypatch.setenv("FLOWJET_HOME", str(tmp_path))
-    monkeypatch.setenv("FLOWJET_BOXLITE_LOCAL_FALLBACK", "true")
+    monkeypatch.setenv("FLOWJET_BOXLITE_IMAGE", "flowjet-server:test")
 
     s = Settings()
     backend = build_backend(s)  # should not raise

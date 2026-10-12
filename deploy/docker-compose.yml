@@ -71,8 +71,8 @@ services:
         published: ${FLOWJET_PORT_PUBLISHED:-8618}
         host_ip: ${FLOWJET_BIND_IP:-127.0.0.1}
     volumes:
-      - flowjet_server_data:/var/lib/soothe
-      - ./nano.yml:/var/lib/soothe/config/nano.yml:ro
+      - flowjet_server_data:/flowjet
+      - ./nano.yml:/flowjet/config/nano.yml:ro
     deploy:
       resources:
         limits:
