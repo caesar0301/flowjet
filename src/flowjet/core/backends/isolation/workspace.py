@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -112,6 +114,8 @@ class SyncAwareWorkspaceResolver(WorkspaceResolver):
         self._sync_config = sync_config
         self._cas_root = Path(cas_root).expanduser() if cas_root else self._home / "data" / "cas"
         self._manager: Any | None = None
+        self._sync_backend: Any | None = None
+        self._restore_cas: Any | None = None
         self._open_workspaces: dict[str, Any] = {}
 
     @property
@@ -130,6 +134,7 @@ class SyncAwareWorkspaceResolver(WorkspaceResolver):
 
         config = self._load_sync_config()
         backend = self._construct_sync_backend(config)
+        self._sync_backend = backend
         workspaces_root = self._home / "data" / "workspaces"
         workspaces_root.mkdir(parents=True, exist_ok=True)
         self._cas_root.mkdir(parents=True, exist_ok=True)
@@ -203,11 +208,75 @@ class SyncAwareWorkspaceResolver(WorkspaceResolver):
             return
 
         ws = await manager.open(run_id)
+        await self._restore_prior_state(ws)
         self._open_workspaces[run_id] = ws
 
         # Start dirty tracking + background uploader for incremental persistence.
         await ws.start_tracking()
         logger.info("Opened sync workspace for session %s at %s", session, workspace)
+
+    async def _restore_prior_state(self, ws: Any) -> None:
+        """Recover the prior manifest and materialize its files locally.
+
+        Round-trip half of workspace sync: ``close_session`` checkpoints and
+        uploads dirty files; this restores them so a fresh server process (or
+        an evicted session workspace) sees the agent's prior outputs.
+
+        - Agent-written files live in ``manifest.artifacts`` (path → sha256,
+          blobs under ``<root>/blobs/``) and are restored in place at their
+          recorded relative paths under the workspace root.
+        - Declared input resources (``manifest.resources``) are materialized
+          under ``<root>/input/`` via the soothe Materializer.
+        """
+        payload = await ws.recover()  # restores checkpoint state, returns snapshot payload
+        manifest = payload.manifest_snapshot if payload is not None else None
+        if manifest is None:
+            return
+
+        restored = 0
+        for entry in manifest.artifacts:
+            rel = entry.path
+            if (
+                rel.startswith(".workspace/")
+                or rel.startswith("__pycache__/")
+                or rel.startswith(".git/")
+            ):
+                continue
+            dest = ws.root / rel
+            if dest.is_file() and not dest.is_symlink():
+                import hashlib as _hashlib
+
+                existing = await asyncio.to_thread(dest.read_bytes)
+                if _hashlib.sha256(existing).hexdigest() == entry.sha256:
+                    continue
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            cas = await self._restore_cas_handle()
+            blob_path = await cas.fetch_and_cache(entry.sha256, self._sync_backend)
+            if blob_path is None:
+                logger.warning("Sync restore: blob missing for %s (%s)", rel, entry.sha256[:12])
+                continue
+            await asyncio.to_thread(shutil.copyfile, blob_path, dest)
+            restored += 1
+
+        if manifest.resources:
+            # Materializer writes declared resources under <root>/input/.
+            await ws.materialize(manifest)
+
+        if restored or manifest.resources:
+            logger.info(
+                "Sync restore for run %s: %d artifacts materialized, %d input resources",
+                ws.run_id,
+                restored,
+                len(manifest.resources),
+            )
+
+    async def _restore_cas_handle(self) -> Any:
+        """Lazily build a CAS cache for artifact restore (host-side, outside ws)."""
+        if self._restore_cas is None:
+            from soothe.workspace.sync.cas import CASCache
+
+            self._restore_cas = CASCache(cache_root=self._cas_root)
+        return self._restore_cas
 
     async def close_session(self, session: str, workspace: Path) -> None:
         """Checkpoint dirty files + upload to object store + close workspace."""

@@ -172,15 +172,20 @@ def _build_adapter() -> Any:
     from flowjet.core.modes import Surface
 
     backend = resolve_backend(Surface.SERVER)
+    # Workers run as subprocesses of the server, so they inherit its env —
+    # including FLOWJET_NANO_CONFIG. Pass it through: with sync/boxlite deploys
+    # the config mounts may live outside FLOWJET_HOME, and load_config(None)
+    # would otherwise fall back to an empty zero-config agent (missing keys).
+    config_path = os.environ.get("FLOWJET_NANO_CONFIG") or None
     try:
         if backend is Backend.SOOTHE:
             from flowjet.core.bridges.soothe.adapter import SootheAgentAdapter
 
-            return SootheAgentAdapter()
+            return SootheAgentAdapter(config_path=config_path)
         else:
             from flowjet.core.bridges.nano.adapter import NanoAgentAdapter
 
-            return NanoAgentAdapter()
+            return NanoAgentAdapter(config_path=config_path)
     except Exception as exc:  # noqa: BLE001
         logger.warning(
             "Worker %s: adapter build failed (%s); falling back to FakeAgentAdapter",

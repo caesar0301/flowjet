@@ -9,6 +9,7 @@ credentials or network are needed.
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -76,6 +77,8 @@ async def test_sync_resolver_open_session_materializes_and_tracks(tmp_path: Path
     )
 
     mock_ws = MagicMock()
+    mock_ws.recover = AsyncMock(return_value=None)
+    mock_ws.manifest = None
     mock_ws.start_tracking = AsyncMock()
     mock_manager = MagicMock()
     mock_manager.open = AsyncMock(return_value=mock_ws)
@@ -89,10 +92,57 @@ async def test_sync_resolver_open_session_materializes_and_tracks(tmp_path: Path
     assert mock_manager.open.await_count == 1
     called_run_id = mock_manager.open.call_args[0][0]
     assert called_run_id.startswith("ws_")
+    # The prior remote state must be recovered before tracking starts.
+    mock_ws.recover.assert_awaited_once()
     # start_tracking should have been called.
     mock_ws.start_tracking.assert_awaited_once()
     # The workspace should be tracked in _open_workspaces.
     assert called_run_id in resolver._open_workspaces
+
+
+@pytest.mark.asyncio
+async def test_sync_resolver_open_session_restores_artifacts(tmp_path: Path):
+    """open_session restores prior artifacts; missing blobs are skipped safely."""
+    resolver = SyncAwareWorkspaceResolver(
+        tmp_path, sync_source="s3://bucket/pfx", cas_root=str(tmp_path / "cas")
+    )
+
+    ws_root = tmp_path / "data" / "workspaces" / "ws_x"
+    ws_root.mkdir(parents=True)
+    # An artifact whose local file already matches its hash → skipped.
+    good = ws_root / "keep.txt"
+    good.write_text("same")
+    import hashlib as _hl
+
+    sha_good = _hl.sha256(b"same").hexdigest()
+
+    mock_ws = MagicMock()
+    mock_ws.recover = AsyncMock(return_value=None)
+    mock_ws.root = ws_root
+    mock_ws.manifest = SimpleNamespace(
+        artifacts=[
+            SimpleNamespace(path="keep.txt", sha256=sha_good, size=4),
+            SimpleNamespace(path="missing-blob.txt", sha256="f" * 64, size=9),
+        ],
+        resources=[],
+    )
+    mock_ws.start_tracking = AsyncMock()
+    mock_manager = MagicMock()
+    mock_manager.open = AsyncMock(return_value=mock_ws)
+    resolver._manager = mock_manager
+    # Restore CAS returns no blob for the missing artifact.
+    restore_cas = MagicMock()
+    restore_cas.fetch_and_cache = AsyncMock(return_value=None)
+    resolver._restore_cas = restore_cas
+
+    path = resolver.resolve("session-restore")
+    await resolver.open_session("session-restore", path)
+
+    mock_ws.recover.assert_awaited_once()
+    mock_ws.start_tracking.assert_awaited_once()
+    # The matching file was left untouched; no file for the missing blob.
+    assert good.read_text() == "same"
+    assert not (ws_root / "missing-blob.txt").exists()
 
 
 @pytest.mark.asyncio
@@ -104,6 +154,8 @@ async def test_sync_resolver_close_session_checkpoints_and_closes(tmp_path: Path
 
     mock_ws = MagicMock()
     mock_ws.checkpoint = AsyncMock(return_value="ckpt-1")
+    mock_ws.recover = AsyncMock(return_value=None)
+    mock_ws.manifest = None
     mock_ws.start_tracking = AsyncMock()
     mock_manager = MagicMock()
     mock_manager.open = AsyncMock(return_value=mock_ws)
@@ -129,6 +181,8 @@ async def test_sync_resolver_close_session_swallows_checkpoint_errors(tmp_path: 
 
     mock_ws = MagicMock()
     mock_ws.checkpoint = AsyncMock(side_effect=RuntimeError("boom"))
+    mock_ws.recover = AsyncMock(return_value=None)
+    mock_ws.manifest = None
     mock_ws.start_tracking = AsyncMock()
     mock_manager = MagicMock()
     mock_manager.open = AsyncMock(return_value=mock_ws)
@@ -165,6 +219,8 @@ async def test_sync_resolver_open_session_idempotent(tmp_path: Path):
     )
 
     mock_ws = MagicMock()
+    mock_ws.recover = AsyncMock(return_value=None)
+    mock_ws.manifest = None
     mock_ws.start_tracking = AsyncMock()
     mock_manager = MagicMock()
     mock_manager.open = AsyncMock(return_value=mock_ws)
@@ -188,6 +244,8 @@ async def test_sync_resolver_shutdown_closes_all(tmp_path: Path):
     mock_ws = MagicMock()
     mock_ws.start_tracking = AsyncMock()
     mock_ws.checkpoint = AsyncMock()
+    mock_ws.recover = AsyncMock(return_value=None)
+    mock_ws.manifest = None
     mock_manager = MagicMock()
     mock_manager.open = AsyncMock(return_value=mock_ws)
     mock_manager.close = AsyncMock()

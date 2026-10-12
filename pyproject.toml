@@ -25,16 +25,11 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-# The CLI stays a single-dependency wheel. Everything the HTTP service needs
-# lives in the `server` extra, and `flowjet.cli` never imports it at module
-# scope (see tests/unit/test_cli_no_server_deps.py).
+# Single-dependency CLI wheel; HTTP service deps live in the `server` extra.
 dependencies = [
-    # Default CLI runtime (FLOWJET_BACKEND=soothe). soothe is a host layer over
-    # soothe-nano, so nano stays pinned explicitly: soothe only caps it at <2.
-    # Floor 1.0.20: workspace-sync fixes (checkpoint DirtyTracker API mismatch,
-    # fsspec parent-dir creation, root-file dirty tracking, scan_now()).
-    "soothe>=1.0.20,<2.0.0",
-    "soothe-nano>=1.3.2,<1.4.0",
+    # soothe is a host layer over soothe-nano, so nano is pinned explicitly.
+    "soothe>=1.0.21,<2.0.0",
+    "soothe-nano>=1.3.3,<1.4.0",
 ]
 
 [project.optional-dependencies]
@@ -45,6 +40,8 @@ server = [
     "pydantic-settings>=2.0",
     "agent-client-protocol[http]>=0.12.1,<1.0.0",
     "langchain-core>=0.3",
+    # S3/MinIO workspace sync backend
+    "s3fs>=2024.6",
 ]
 dev = [
     "pytest>=8.0.0",
@@ -64,13 +61,10 @@ dev = [
 
 [tool.uv]
 default-groups = ["dev"]
-# cryptography 46+ ships macOS wheels for arm64 only; Intel Macs must build from
-# source (Rust), which is slow and looks like a hang during `uv sync`.
+# cryptography 46+ lacks x86_64 macOS wheels; Intel Macs would build from source.
 constraint-dependencies = [
     "cryptography>=45,<46; platform_machine == 'x86_64' and sys_platform == 'darwin'",
 ]
-
-# soothe-nano is published on PyPI (>=0.9.9); resolve it from the default index.
 
 [project.scripts]
 flowjet = "flowjet.cli.cli:main"
@@ -89,16 +83,13 @@ packages = ["src/flowjet"]
 [tool.hatch.build.targets.sdist]
 include = ["src/flowjet/", "nano.yml", "README.md", "LICENSE", "docs/", "CHANGELOG.md"]
 
-# Non-Python assets (shell completions, builtin_skills/) are shipped automatically
-# because they live inside the `src/flowjet` package, which hatchling includes
-# recursively. Do NOT re-list them in force-include — that adds the same file
-# twice and breaks `uv build` with "A second file is being added ... at the
-# same path".
+# Non-Python assets inside `src/flowjet` ship automatically; re-listing them in
+# force-include duplicates files and breaks `uv build`.
 
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-# AgentSkills scripts are third-party / skill-local style; keep them out of package lint.
+# Third-party / skill-local scripts; excluded from package lint.
 extend-exclude = ["src/flowjet/builtin_skills"]
 
 [tool.ruff.lint]
@@ -114,8 +105,7 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
 
-# The moved server/bridge code is Any-heavy (nano and langchain objects); it is
-# checked loosely until it is annotated. CI has no mypy gate today.
+# Any-heavy moved code (nano/langchain objects); loosened until annotated.
 [[tool.mypy.overrides]]
 module = ["flowjet.server.*", "flowjet.core.bridges.*"]
 disallow_untyped_defs = false
