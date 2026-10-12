@@ -187,6 +187,10 @@ class FlowJetAcpAgent:
         session_cwd = self._session_cwd.get(session_id)
         if session_cwd:
             metadata["workspace"] = session_cwd
+        # Pass through emit_tools so the fake adapter emits tool-call events
+        # during E2E testing (the real nano adapter ignores this flag).
+        if kwargs.get("emit_tools"):
+            metadata["emit_tools"] = True
 
         request = RunRequest(
             model=model,

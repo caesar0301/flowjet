@@ -112,10 +112,15 @@ def _boxlite_adapter_factory(settings: Settings) -> Any:
     This factory is a placeholder — the pool passes it to satisfy the
     IsolationPool protocol but the worker builds its own adapter from the
     resolved backend setting.
-    """
-    from flowjet.core.backends.isolation.adapter import FakeAgentAdapter
 
-    return FakeAgentAdapter
+    Returns a non-Fake callable so the pool's local-subprocess launcher does
+    not inject ``BOXLITE_ADAPTER=fake`` into the worker environment.  The
+    worker's ``_build_adapter()`` will build a real ``SootheAgentAdapter``
+    (or ``NanoAgentAdapter``) based on the resolved server backend.
+    """
+    from flowjet.core.bridges.soothe.adapter import SootheAgentAdapter
+
+    return SootheAgentAdapter
 
 
 def create_app(

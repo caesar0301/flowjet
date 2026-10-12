@@ -44,12 +44,18 @@ from flowjet.core.events import RuntimeEvent
 logger = logging.getLogger(__name__)
 
 _WORKER_ID = os.environ.get("BOXLITE_WORKER_ID", "bl-unknown")
+_REAL_STDOUT: Any = sys.stdout  # set by _force_logs_to_stderr; used by _write_frame
 
 
 def _write_frame(line: str) -> None:
-    """Write a JSON-lines frame to stdout (flushed immediately)."""
-    sys.stdout.write(line + "\n")
-    sys.stdout.flush()
+    """Write a JSON-lines frame to the real stdout (flushed immediately).
+
+    After :func:`_force_logs_to_stderr` swaps ``sys.stdout`` → ``sys.stderr``,
+    this function writes directly to the original stdout file descriptor so
+    protocol frames reach the pool without being polluted by log lines.
+    """
+    _REAL_STDOUT.write(line + "\n")
+    _REAL_STDOUT.flush()
 
 
 def _write_control(frame_type: str, **fields: Any) -> None:
@@ -81,6 +87,10 @@ async def _main() -> None:
     """Main worker loop: read stdin, dispatch requests, emit events."""
     # Build the adapter lazily on first use.
     adapter: Any = None
+
+    # Force all log handlers to stderr so third-party libraries (LiteLLM,
+    # soothe) don't corrupt the JSON-lines stdout protocol channel.
+    _force_logs_to_stderr()
 
     # Signal readiness immediately.
     _write_control("ready")
@@ -182,11 +192,48 @@ def _build_adapter() -> Any:
         return FakeAgentAdapter()
 
 
+def _force_logs_to_stderr() -> None:
+    """Redirect all log handlers and stray ``print()`` calls to stderr.
+
+    The worker communicates with the pool via JSON-lines on **stdout**.
+    Third-party libraries (LiteLLM, soothe) sometimes install StreamHandlers
+    that write to ``sys.stdout`` or call ``print()`` directly, corrupting the
+    protocol channel.  This function:
+
+    1. Replaces all logging handlers with a stderr-only handler.
+    2. Swaps ``sys.stdout`` → ``sys.stderr`` so stray ``print()`` calls go
+       to stderr instead of the protocol channel.
+    3. Keeps a reference to the original stdout (``_REAL_STDOUT``) so
+       :func:`_write_frame` can still write protocol frames.
+    """
+    global _REAL_STDOUT
+
+    import logging
+
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setFormatter(
+        logging.Formatter("%(asctime)s [boxlite:%(worker_id)s] %(name)s %(levelname)s %(message)s")
+    )
+
+    root = logging.getLogger()
+    root.handlers = [stderr_handler]
+    root.setLevel(logging.INFO)
+
+    for name, logger in logging.Logger.manager.loggerDict.items():
+        if isinstance(logger, logging.Logger) and logger.handlers:
+            logger.handlers = [stderr_handler]
+
+    # Swap stdout → stderr so third-party print() calls don't corrupt frames.
+    _REAL_STDOUT = sys.stdout
+    sys.stdout = sys.stderr
+
+
 def main() -> None:
     """Entry point for ``python -m flowjet.core.backends.isolation.boxlite_worker``."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [boxlite:%(worker_id)s] %(message)s",
+        stream=sys.stderr,
     )
     # Attach worker_id to log records.
     old_factory = logging.getLogRecordFactory()
