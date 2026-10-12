@@ -12,6 +12,21 @@ from flowjet.core.backends.isolation.errors import IsolationError
 logger = logging.getLogger(__name__)
 
 
+def _sqlite_state_store_factory(*, loop_id: str, workspace_dir: Path) -> Any:
+    """Build a SQLite workspace state store for a run.
+
+    ``WorkspaceManager`` needs a state store to construct the background
+    uploader; without it ``Workspace.start_tracking()`` crashes because the
+    uploader is ``None``.
+    """
+    from soothe.workspace.state.sqlite import SqliteWorkspaceStateStore
+
+    return SqliteWorkspaceStateStore(
+        db_path=Path(workspace_dir) / ".workspace" / "state.db",
+        loop_id=loop_id,
+    )
+
+
 class WorkspaceResolver:
     """Map session (+ optional metadata.workspace) to an absolute workspace path.
 
@@ -114,7 +129,7 @@ class SyncAwareWorkspaceResolver(WorkspaceResolver):
         from soothe.workspace.sync import WorkspaceManager, construct_sync_backend
 
         config = self._load_sync_config()
-        backend = construct_sync_backend(self._sync_source, config=config)
+        backend = self._construct_sync_backend(config)
         workspaces_root = self._home / "data" / "workspaces"
         workspaces_root.mkdir(parents=True, exist_ok=True)
         self._cas_root.mkdir(parents=True, exist_ok=True)
@@ -122,6 +137,7 @@ class SyncAwareWorkspaceResolver(WorkspaceResolver):
             workspaces_root=workspaces_root,
             cas_root=self._cas_root,
             backend=backend,
+            state_store_factory=_sqlite_state_store_factory,
         )
         logger.info(
             "SyncAwareWorkspaceResolver initialized: source=%s, cas=%s",
@@ -129,6 +145,24 @@ class SyncAwareWorkspaceResolver(WorkspaceResolver):
             self._cas_root,
         )
         return self._manager
+
+    def _construct_sync_backend(self, config: dict[str, Any] | None) -> Any:
+        """Build the fsspec sync backend for ``_sync_source``.
+
+        Cloud schemes (s3/gs/az) go through soothe's guarded
+        ``construct_sync_backend`` factory. ``file://`` URIs are built
+        directly via fsspec (LocalFileSystem) — the factory's SSRF
+        allowlist intentionally excludes local paths, but a local object
+        store is a supported target for single-node deployments and tests.
+        """
+        scheme = self._sync_source.split("://", 1)[0].lower()
+        if scheme == "file":
+            import fsspec
+            from soothe.workspace.sync.backends.fsspec import FsspecSyncBackend
+
+            fs, root = fsspec.url_to_fs(self._sync_source)
+            return FsspecSyncBackend(fs=fs, root=str(root))
+        return construct_sync_backend(self._sync_source, config=config)
 
     def _load_sync_config(self) -> dict[str, Any] | None:
         """Load optional sync config JSON (credentials, endpoint, etc.)."""
