@@ -89,6 +89,16 @@ ENV PATH="/app/.venv/bin:${PATH}"
 RUN mkdir -p /flowjet/config
 COPY config/nano.yml /flowjet/config/nano.yml
 
+# Headless browser for tarzi WebDriver mode — wizsearch's duckduckgo/bing
+# scrape engines and JS-heavy crawl targets need it (Tavily API does not).
+# Debian keeps chromium & chromium-driver (chromedriver) version-matched.
+# tarzi launches chrome with --headless --no-sandbox --disable-gpu
+# --disable-dev-shm-usage, which is safe for containers/non-root.
+RUN sed -i 's|http://deb.debian.org|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends chromium chromium-driver \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN useradd --create-home --system flowjet \
     && chown -R flowjet:flowjet /flowjet
 
