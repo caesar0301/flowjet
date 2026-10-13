@@ -1,0 +1,48 @@
+# syntax=docker/dockerfile:1
+# FlowJet server image on top of the prebuilt base (deps venv + chromium).
+# Only flowjet itself is installed here — a source-only change rebuilds in
+# seconds instead of re-resolving the whole lockfile.
+#
+# Build:
+#   docker build -f Dockerfile.prebuilt \
+#     --build-arg FLOWJET_BASE=registry.cn-hangzhou.aliyuncs.com/lacogito/flowjet-base:latest \
+#     -t flowjet-server:latest .
+#
+# If the base venv drifted from this tree's uv.lock, `uv sync --frozen` below
+# fails loudly at build time (no silent drift into a broken image). To rebuild
+# the base, run .github/workflows/docker-base.yml or:
+#   docker build -f Dockerfile.base -t <base-ref> .
+
+ARG FLOWJET_BASE=registry.cn-hangzhou.aliyuncs.com/lacogito/flowjet-base:latest
+
+FROM ${FLOWJET_BASE} AS runtime
+
+LABEL org.opencontainers.image.title="FlowJet Server" \
+    org.opencontainers.image.description="OpenAI-compatible HTTP service over soothe-nano" \
+    org.opencontainers.image.source="https://github.com/mirasoth/flowjet-server"
+
+ENV FLOWJET_HOME=/flowjet \
+    FLOWJET_HOST=0.0.0.0 \
+    FLOWJET_PORT=8618
+
+WORKDIR /app
+
+COPY pyproject.toml uv.lock README.md /app/
+COPY src /app/src
+# The base venv already satisfies the lock; this only builds + installs the
+# local flowjet wheel. --frozen keeps everything pinned to uv.lock.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    UV_PROJECT_ENVIRONMENT=/app/.venv uv sync --no-dev --frozen --no-editable --extra server
+
+# Default nano config, read by the service from $FLOWJET_HOME/config/nano.yml.
+COPY config/nano.yml /flowjet/config/nano.yml
+
+USER flowjet
+WORKDIR /flowjet
+
+EXPOSE 8618/tcp
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8618/health', timeout=3)" || exit 1
+
+CMD ["flowjet-server"]

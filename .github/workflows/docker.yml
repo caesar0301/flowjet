@@ -15,6 +15,18 @@ on:
         options:
           - "true"
           - "false"
+      use_base:
+        description: "Build from prebuilt flowjet-base (false = standalone build, e.g. for LOCAL_WHEELS)"
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+      base_tag:
+        description: "flowjet-base tag to build from"
+        required: false
+        default: "latest"
   release:
     types: [published]
 
@@ -24,6 +36,8 @@ env:
   IMAGE_NAME: flowjet-server
   # Avoid Docker Hub anonymous rate limits / auth.docker.io timeouts on GHA runners.
   PYTHON_BASE: registry.cn-hangzhou.aliyuncs.com/lacogito/python:3.12-bookworm
+  # Prebuilt deps+chromium base (see Dockerfile.base / docker-base.yml).
+  FLOWJET_BASE: registry.cn-hangzhou.aliyuncs.com/lacogito/flowjet-base
 
 jobs:
   build-and-push:
@@ -135,16 +149,21 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile
+          # workflow_dispatch uses the explicit use_base input; release events
+          # have no inputs and default to the prebuilt base.
+          file: ${{ github.event.inputs.use_base != 'false' && 'Dockerfile.prebuilt' || 'Dockerfile' }}
           builder: ${{ steps.buildx.outputs.name }}
           build-args: |
             PYTHON_BASE=${{ env.PYTHON_BASE }}
+            FLOWJET_BASE=${{ env.FLOWJET_BASE }}:${{ github.event.inputs.base_tag || 'latest' }}
           platforms: linux/amd64,linux/arm64
           push: ${{ steps.publish.outputs.should_push == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           provenance: false
           sbom: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Build summary
         run: |

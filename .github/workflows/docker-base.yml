@@ -1,0 +1,137 @@
+name: Build Base Image
+
+# Prebuilds the slowly-changing parts of flowjet-server (apt packages, uv,
+# locked dependency venv, chromium) into lacogito/flowjet-base. App builds
+# (docker.yml) then only install flowjet itself — see Dockerfile.base.
+#
+# Triggers:
+#   - push to main touching pyproject.toml / uv.lock / Dockerfile.base
+#   - manual workflow_dispatch (also usable as an explicit fallback/refresh)
+
+on:
+  workflow_dispatch:
+    inputs:
+      push_image:
+        description: "Push image to registry"
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+  push:
+    branches: [main]
+    paths:
+      - "pyproject.toml"
+      - "uv.lock"
+      - "Dockerfile.base"
+      - ".github/workflows/docker-base.yml"
+
+env:
+  REGISTRY: registry.cn-hangzhou.aliyuncs.com
+  NAMESPACE: lacogito
+  IMAGE_NAME: flowjet-base
+  PYTHON_BASE: registry.cn-hangzhou.aliyuncs.com/lacogito/python:3.12-bookworm
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo apt-get clean
+          df -h
+
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # Content-addressed tag: any change to pyproject/uv.lock/Dockerfile.base
+      # yields a new tag, so app builds can pin an exact base when needed.
+      - name: Compute base content hash
+        id: hash
+        run: |
+          set -euo pipefail
+          content_hash="$(cat pyproject.toml uv.lock Dockerfile.base | sha256sum | cut -c1-12)"
+          echo "base_tag=base-${content_hash}" >> "${GITHUB_OUTPUT}"
+          echo "Base content hash -> base-${content_hash}"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Resolve registry publish eligibility
+        id: publish
+        env:
+          REGISTRY_USER: ${{ secrets.ALIYUN_REGISTRY_USERNAME }}
+          REGISTRY_PASS: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
+          GH_EVENT_NAME: ${{ github.event_name }}
+        run: |
+          ready=false
+          if [ -n "${REGISTRY_USER}" ] && [ -n "${REGISTRY_PASS}" ]; then ready=true; fi
+          echo "registry_secrets_ready=${ready}" >> "${GITHUB_OUTPUT}"
+
+          want=false
+          if [ "${GH_EVENT_NAME}" = "push" ]; then
+            want=true
+          elif [ "${{ github.event.inputs.push_image }}" = "true" ]; then
+            want=true
+          fi
+          echo "want_push=${want}" >> "${GITHUB_OUTPUT}"
+
+          should=false
+          if [ "${ready}" = "true" ] && [ "${want}" = "true" ]; then should=true; fi
+          echo "should_push=${should}" >> "${GITHUB_OUTPUT}"
+
+      - name: Warn when registry push is skipped
+        if: ${{ steps.publish.outputs.want_push == 'true' && steps.publish.outputs.should_push != 'true' }}
+        run: |
+          echo "::warning::Skipping registry push. Configure repository secrets ALIYUN_REGISTRY_USERNAME and ALIYUN_REGISTRY_PASSWORD to publish images."
+
+      # Login before setup-buildx: docker/login-action rewrites DOCKER_CONFIG and would
+      # otherwise drop the buildx builder config (see docker/build-push-action#1253).
+      - name: Login to Aliyun Container Registry
+        if: ${{ steps.publish.outputs.registry_secrets_ready == 'true' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.ALIYUN_REGISTRY_USERNAME }}
+          password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
+
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          version: latest
+
+      - name: Build and push base image (multi-platform)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.base
+          builder: ${{ steps.buildx.outputs.name }}
+          build-args: |
+            PYTHON_BASE=${{ env.PYTHON_BASE }}
+          platforms: linux/amd64,linux/arm64
+          push: ${{ steps.publish.outputs.should_push == 'true' }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ steps.hash.outputs.base_tag }}
+            ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:latest
+          provenance: false
+          sbom: false
+          # No GHA layer cache benefit here for the uv-sync layer (cache mounts
+          # are excluded from layers); the published image IS the cache.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build summary
+        run: |
+          echo "### FlowJet Base Image Built" >> "${GITHUB_STEP_SUMMARY}"
+          echo "" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Property | Value |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "|----------|-------|" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Base tag | \`${{ steps.hash.outputs.base_tag }}\` |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Pushed | \`${{ steps.publish.outputs.should_push }}\` |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Registry | \`${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}\` |" >> "${GITHUB_STEP_SUMMARY}"

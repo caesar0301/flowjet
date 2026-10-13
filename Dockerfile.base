@@ -1,0 +1,78 @@
+# syntax=docker/dockerfile:1
+# FlowJet base image — all the SLOWLY-CHANGING parts, built and pushed ahead of
+# time so per-commit app builds are fast:
+#   - apt packages (ca-certificates, curl; chromium + chromium-driver)
+#   - the uv binary
+#   - the locked dependency venv (uv sync WITHOUT flowjet itself)
+#
+# Rebuild only when pyproject.toml / uv.lock / this file change
+# (.github/workflows/docker-base.yml automates this). Published as
+#   registry.cn-hangzhou.aliyuncs.com/lacogito/flowjet-base:{base-<hash>,latest}
+#
+# Manual build:
+#   docker build -f Dockerfile.base -t lacogito/flowjet-base:latest .
+#
+# NOTE: does NOT support LOCAL_WHEELS overrides (e.g. unreleased soothe) — use
+# the standalone ./Dockerfile for such builds.
+
+ARG PYTHON_BASE=registry.cn-hangzhou.aliyuncs.com/lacogito/python:3.12-bookworm
+
+# =============================================================================
+# Stage 1: locked dependency venv (no project source needed)
+# =============================================================================
+FROM ${PYTHON_BASE} AS deps
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    UV_COMPILE_BYTECODE=1 \
+    SOOTHE_HOME=/flowjet
+
+RUN sed -i 's|http://deb.debian.org|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv directly via curl (avoids ghcr.io access for networks with restrictions)
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
+    && mv /root/.local/bin/uv /usr/local/bin/uv
+
+WORKDIR /app
+
+# --no-install-project installs every locked dependency but skips building
+# flowjet itself, so no source tree is needed in this image.
+COPY pyproject.toml uv.lock README.md /app/
+RUN --mount=type=cache,target=/root/.cache/uv \
+    UV_PROJECT_ENVIRONMENT=/app/.venv uv sync --no-dev --frozen --no-editable \
+        --no-install-project --extra server
+
+# =============================================================================
+# Stage 2: runtime base — venv + uv + headless browser + user (root, no entry)
+# =============================================================================
+FROM ${PYTHON_BASE} AS runtime
+
+LABEL org.opencontainers.image.title="FlowJet Server Base" \
+    org.opencontainers.image.description="Prebuilt deps venv + chromium for fast flowjet-server builds" \
+    org.opencontainers.image.source="https://github.com/mirasoth/flowjet-server"
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    SOOTHE_HOME=/flowjet
+
+COPY --from=deps /usr/local/bin/uv /usr/local/bin/uv
+COPY --from=deps /app/.venv /app/.venv
+ENV PATH="/app/.venv/bin:${PATH}"
+
+# Headless browser for tarzi WebDriver mode — wizsearch's duckduckgo/bing
+# scrape engines and JS-heavy crawl targets need it (Tavily API does not).
+# Debian keeps chromium & chromium-driver (chromedriver) version-matched.
+# tarzi launches chrome with --headless --no-sandbox --disable-gpu
+# --disable-dev-shm-usage, which is safe for containers/non-root.
+RUN sed -i 's|http://deb.debian.org|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends chromium chromium-driver \
+    && rm -rf /var/lib/apt/lists/*
+
+# Stay root here — the app Dockerfile runs uv sync to add flowjet itself
+# (needs write access to /app/.venv) before switching to the flowjet user.
+RUN useradd --create-home --system flowjet \
+    && chown -R flowjet:flowjet /flowjet
