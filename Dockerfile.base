@@ -75,4 +75,5 @@ RUN sed -i 's|http://deb.debian.org|http://mirrors.aliyun.com|g' /etc/apt/source
 # Stay root here — the app Dockerfile runs uv sync to add flowjet itself
 # (needs write access to /app/.venv) before switching to the flowjet user.
 RUN useradd --create-home --system flowjet \
+    && mkdir -p /flowjet \
     && chown -R flowjet:flowjet /flowjet
