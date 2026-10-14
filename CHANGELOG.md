@@ -10,6 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.10] — 2026-10-14
+
+### Changed
+
+- **Bump soothe and soothe-nano to the latest.** `soothe` `1.0.22 → 1.1.0`
+  and `soothe-nano` `1.3.3 → 1.4.2`. The version caps were lifted:
+  `soothe>=1.1.0,<2.0.0` and `soothe-nano>=1.4.2,<1.5.0`. The standalone
+  `soothe-sdk` package was removed in the new release; its modules merged
+  into `soothe` and `soothe-nano`. All FlowJet import paths were migrated:
+  `soothe_sdk.utils.serde` → `soothe_nano.utils.serde`,
+  `soothe_sdk.utils.formatting` → `soothe_nano.utils.formatting`,
+  `soothe_sdk.tools.metadata` → `soothe_nano.tools.metadata`, and
+  `soothe_sdk.display.message_processing` → `soothe.display.message_processing`.
+  The graceful try/except fallbacks in `progress.py` and `tool_stream.py`
+  now resolve to the real implementations instead of falling through to
+  fallbacks.
+
 ## [2.0.9] — 2026-09-24
 
 ### Fixed

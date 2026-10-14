@@ -193,7 +193,7 @@ async def open_sqlite_checkpointer(config: Any) -> AsyncIterator[Any | None]:
 
     import aiosqlite
     from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-    from soothe_sdk.utils.serde import create_soothe_serde
+    from soothe_nano.utils.serde import create_soothe_serde
 
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     conn = await aiosqlite.connect(db_path)

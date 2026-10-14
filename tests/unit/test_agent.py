@@ -115,7 +115,7 @@ async def test_open_sqlite_checkpointer_opens_db(
 
     import aiosqlite
     import langgraph.checkpoint.sqlite.aio as aio_mod
-    import soothe_sdk.utils.serde as serde_mod
+    import soothe_nano.utils.serde as serde_mod
 
     monkeypatch.setattr(aiosqlite, "connect", fake_connect)
     monkeypatch.setattr(aio_mod, "AsyncSqliteSaver", fake_saver)

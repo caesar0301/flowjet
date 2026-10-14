@@ -116,7 +116,7 @@ class ToolCallArgAccumulator:
 
         if chunks:
             try:
-                from soothe_sdk.display.message_processing import accumulate_tool_call_chunks
+                from soothe.display.message_processing import accumulate_tool_call_chunks
 
                 before = {k: (v.get("name"), v.get("args_str")) for k, v in self._pending.items()}
                 self._last_active_id = accumulate_tool_call_chunks(

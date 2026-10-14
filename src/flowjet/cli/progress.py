@@ -308,7 +308,7 @@ def _compact(value: Any) -> str:
 
 def _abbrev_path(path: str) -> str:
     try:
-        from soothe_sdk.utils.formatting import convert_and_abbreviate_path
+        from soothe_nano.utils.formatting import convert_and_abbreviate_path
 
         return convert_and_abbreviate_path(path)
     except Exception:
@@ -320,7 +320,7 @@ def _abbrev_path(path: str) -> str:
 
 def _tool_meta(name: str) -> Any | None:
     try:
-        from soothe_sdk.tools.metadata import get_tool_meta
+        from soothe_nano.tools.metadata import get_tool_meta
 
         return get_tool_meta(name)
     except Exception:
