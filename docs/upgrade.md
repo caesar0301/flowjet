@@ -59,10 +59,11 @@ Server flags: `fj serve --host HOST --port PORT --api-key KEY --nano-config PATH
 ## Behaviour changes worth knowing
 
 1. **Security is now an explicit surface policy.** The CLI forces
-   `allow_paths_outside_workspace = True`; the server forces `False`. Both are
-   declared in `flowjet.core.modes` (`CLI_PROFILE` / `SERVER_PROFILE`) instead of
-   being an accident of which module built the agent. `bypass` mode is rejected
-   on the server surface.
+   `allow_paths_outside_workspace = True` and defaults to `bypass` mode (the CLI
+   runs on the user's own machine); the server forces `False` and rejects
+   `bypass`. Both are declared in `flowjet.core.modes` (`CLI_PROFILE` /
+   `SERVER_PROFILE`) instead of being an accident of which module built the
+   agent.
 2. **The CLI runs on the shared `RuntimeBackend`.** `fj` now consumes the same
    `RuntimeEvent` stream as SSE. Terminal output is unchanged, but the streaming
    path is one code path shared with the server.

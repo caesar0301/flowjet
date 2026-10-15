@@ -137,7 +137,6 @@ query modes:
   {show} -t ID QUERY...        Continue a specific thread
   {show} -t ID                 Pin thread as active (no query)
   {show} -a QUERY...           Ask mode: answer only, no tool calls
-  {show} -b QUERY...           Bypass mode: skip all security enforcement
 
 examples:
   {show} explain this repo
@@ -153,15 +152,14 @@ notes:
   • -t overrides -f when both are given; -n requires -l; -l takes no query
   • -f is per project (git root, else cwd); resume elsewhere with -t ID
   • -a/--ask disables all tools — pure Q&A, no side effects
-  • -b/--bypass skips all security enforcement — use with care
-  • -b overrides -a when both are given
+  • Bypass mode (skip all security enforcement) is the CLI default — use -a for guardrails
   • One query per thread at a time; different threads may run concurrently
   • With -v, prints thread <id> and the project dir on stderr before the run
 """
 
 
 # Boolean short flags that may appear clustered (``-lv`` → ``-l -v``).
-_BOOL_SHORTS = frozenset({"h", "V", "l", "v", "f", "a", "b"})
+_BOOL_SHORTS = frozenset({"h", "V", "l", "v", "f", "a"})
 # Short flags that consume the next argv token as a value.
 _VALUE_FLAGS = frozenset({"-c", "--config", "-t", "--thread", "-w", "--workspace", "-n"})
 _FLAG_ONLY = frozenset(
@@ -179,8 +177,6 @@ _FLAG_ONLY = frozenset(
         "--follow",
         "-a",
         "--ask",
-        "-b",
-        "--bypass",
     }
 )
 _EQUALS_PREFIXES = ("--config=", "--thread=", "--workspace=")
@@ -256,7 +252,6 @@ def validate_arg_composition(args: Any) -> str | None:
     workspace = getattr(args, "workspace", None)
     no_stream = bool(getattr(args, "no_stream", False))
     ask = bool(getattr(args, "ask", False))
-    bypass = bool(getattr(args, "bypass", False))
     query = (getattr(args, "query_text", None) or "").strip()
 
     if list_limit is not None and not listing:
@@ -275,8 +270,6 @@ def validate_arg_composition(args: Any) -> str | None:
             return "-l/--list cannot be combined with --no-stream"
         if ask:
             return "-l/--list cannot be combined with -a/--ask"
-        if bypass:
-            return "-l/--list cannot be combined with -b/--bypass"
 
     return None
 
@@ -381,12 +374,6 @@ def _build_parser(prog: str | None = None) -> argparse.ArgumentParser:
         "--ask",
         action="store_true",
         help="Ask mode: answer the query with no tools (pure Q&A)",
-    )
-    output.add_argument(
-        "-b",
-        "--bypass",
-        action="store_true",
-        help="Bypass mode: skip all security enforcement (full tools, no guardrails)",
     )
 
     paths = parser.add_argument_group("paths")
@@ -599,7 +586,6 @@ async def run_async(args: argparse.Namespace) -> int:
                     checkpointer=checkpointer,
                     verbose=args.verbose,
                     ask_mode=getattr(args, "ask", False),
-                    bypass_mode=getattr(args, "bypass", False),
                 )
                 # If the thread paused on an ``ask_user`` interrupt, the user's
                 # query text is their answer — resume the run instead of

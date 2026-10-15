@@ -88,22 +88,17 @@ async def build_agent(
     checkpointer: Any | None = None,
     verbose: bool = False,
     ask_mode: bool = False,
-    bypass_mode: bool = False,
 ) -> Any:
     """Build a nano coding agent for the current workspace.
 
-    Defaults to auto mode: the interaction mode is resolved from the config
-    (falling back to ``agent``) rather than forced. ``ask_mode`` switches to
-    read-only ask mode. ``bypass_mode`` switches to bypass mode, which skips
-    all security enforcement layers (use with care). ``bypass_mode`` takes
-    precedence over ``ask_mode`` when both are set.
+    The CLI runs on the user's own machine, so bypass mode (which skips all
+    security enforcement layers) is the default. ``ask_mode`` switches to
+    read-only ask mode instead.
     """
-    if bypass_mode:
-        mode: str | None = "bypass"
-    elif ask_mode:
-        mode = "ask"
+    if ask_mode:
+        mode: str | None = "ask"
     else:
-        mode = None
+        mode = "bypass"
     configure_cli_logging(verbose=verbose)
     ensure_workspace(workspace)
     agent = create_agent(config, CLI_PROFILE, interaction_mode=mode)

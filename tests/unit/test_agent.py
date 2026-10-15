@@ -193,40 +193,6 @@ async def test_build_agent_ask_mode_forwards_interaction_mode(
     assert captured.get("policy") is None
 
 
-@pytest.mark.asyncio
-async def test_build_agent_default_mode_auto_resolves(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """ask_mode=False forwards interaction_mode=None so the mode auto-resolves.
-
-    fj no longer forces a mode; passing ``None`` lets soothe-nano resolve from
-    the config (default ``agent``) instead of pinning to bypass.
-    """
-    import flowjet.cli.agent as agent_mod
-
-    captured: dict[str, object] = {}
-
-    class FakeGraph:
-        checkpointer = None
-
-    class FakeAgent:
-        def __init__(self) -> None:
-            self.graph = FakeGraph()
-
-    def fake_create(_cfg: object, _profile: object = None, **kwargs: object) -> FakeAgent:
-        captured.update(kwargs)
-        return FakeAgent()
-
-    monkeypatch.setattr(agent_mod, "configure_cli_logging", lambda **_k: None)
-    monkeypatch.setattr(agent_mod, "ensure_workspace", lambda _w=None: Path.cwd())
-    monkeypatch.setattr(agent_mod, "create_agent", fake_create)
-    monkeypatch.setattr(agent_mod, "silence_after_plugins", lambda **_k: None)
-
-    await agent_mod.build_agent(SootheConfig(), ask_mode=False)
-    mode = captured.get("interaction_mode")
-    assert mode is None
-
-
 # ---------------------------------------------------------------------------
 # Ask mode
 # ---------------------------------------------------------------------------
@@ -246,15 +212,15 @@ def test_apply_fj_defaults_preserves_sqlite_persistence_in_ask_context() -> None
 
 
 # ---------------------------------------------------------------------------
-# Bypass mode
+# Bypass mode (CLI default)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_build_agent_bypass_mode_forwards_interaction_mode(
+async def test_build_agent_bypass_is_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """bypass_mode=True must forward interaction_mode="bypass" to create_nano_agent.
+    """The CLI defaults to bypass mode — no flag needed to opt in.
 
     Bypass mode skips all security enforcement layers; the nano builder handles
     the policy profile and system prompt natively. fj only selects the mode.
@@ -279,35 +245,6 @@ async def test_build_agent_bypass_mode_forwards_interaction_mode(
     monkeypatch.setattr(agent_mod, "create_agent", fake_create)
     monkeypatch.setattr(agent_mod, "silence_after_plugins", lambda **_k: None)
 
-    await agent_mod.build_agent(SootheConfig(), bypass_mode=True)
+    await agent_mod.build_agent(SootheConfig())
     assert captured.get("interaction_mode") == "bypass"
     assert captured.get("policy") is None
-
-
-@pytest.mark.asyncio
-async def test_build_agent_bypass_overrides_ask(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """When both ask_mode and bypass_mode are set, bypass takes precedence."""
-    import flowjet.cli.agent as agent_mod
-
-    captured: dict[str, object] = {}
-
-    class FakeGraph:
-        checkpointer = None
-
-    class FakeAgent:
-        def __init__(self) -> None:
-            self.graph = FakeGraph()
-
-    def fake_create(_cfg: object, _profile: object = None, **kwargs: object) -> FakeAgent:
-        captured.update(kwargs)
-        return FakeAgent()
-
-    monkeypatch.setattr(agent_mod, "configure_cli_logging", lambda **_k: None)
-    monkeypatch.setattr(agent_mod, "ensure_workspace", lambda _w=None: Path.cwd())
-    monkeypatch.setattr(agent_mod, "create_agent", fake_create)
-    monkeypatch.setattr(agent_mod, "silence_after_plugins", lambda **_k: None)
-
-    await agent_mod.build_agent(SootheConfig(), ask_mode=True, bypass_mode=True)
-    assert captured.get("interaction_mode") == "bypass"

@@ -4,7 +4,8 @@ Before the merge, the two products carried **opposite** security defaults in
 two different modules:
 
 * ``fj_ai.agent.apply_fj_defaults`` forced ``allow_paths_outside_workspace=True``
-  (a CLI runs on the user's own machine, with the user's own files).
+  (a CLI runs on the user's own machine, with the user's own files) and the CLI
+  defaulted to ``bypass`` mode.
 * ``flowjet_server.bridges.nano.adapter`` forced it to ``False`` (a server
   hands each request an isolated workspace that tools must never escape).
 

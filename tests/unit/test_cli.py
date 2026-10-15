@@ -87,32 +87,6 @@ def test_parse_args_ask_with_follow() -> None:
     assert args.query_text == "continue here"
 
 
-def test_parse_args_bypass_flag_short() -> None:
-    args = parse_args(["-b", "run", "anything"])
-    assert args.bypass is True
-    assert args.query_text == "run anything"
-
-
-def test_parse_args_bypass_flag_long() -> None:
-    args = parse_args(["--bypass", "explain the repo"])
-    assert args.bypass is True
-    assert args.query_text == "explain the repo"
-
-
-def test_parse_args_bypass_overrides_ask() -> None:
-    args = parse_args(["-a", "-b", "do stuff"])
-    assert args.ask is True
-    assert args.bypass is True
-    assert args.query_text == "do stuff"
-
-
-def test_split_argv_bypass_cluster() -> None:
-    # ``-bv`` → ``-b -v`` (both boolean shorts)
-    opts, query = split_argv(["-bv", "hi"])
-    assert opts == ["-b", "-v"]
-    assert query == ["hi"]
-
-
 def test_split_argv_ask_cluster() -> None:
     # ``-av`` → ``-a -v`` (both boolean shorts)
     opts, query = split_argv(["-av", "hi"])
@@ -133,33 +107,11 @@ def test_validate_arg_composition_ask_with_list_rejected() -> None:
         workspace=None,
         no_stream=False,
         ask=True,
-        bypass=False,
         query_text="",
     )
     err = validate_arg_composition(ns)
     assert err is not None
     assert "-a/--ask" in err
-
-
-def test_validate_arg_composition_bypass_with_list_rejected() -> None:
-    from argparse import Namespace
-
-    from flowjet.cli.cli import validate_arg_composition
-
-    ns = Namespace(
-        list=True,
-        list_limit=None,
-        follow=False,
-        thread=None,
-        workspace=None,
-        no_stream=False,
-        ask=False,
-        bypass=True,
-        query_text="",
-    )
-    err = validate_arg_composition(ns)
-    assert err is not None
-    assert "-b/--bypass" in err
 
 
 def test_resolve_cli_prog_known_entrypoints() -> None:

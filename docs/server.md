@@ -92,7 +92,7 @@ The CLI and the server have deliberately different invariants, declared in
 | | CLI | Server |
 |---|---|---|
 | `allow_paths_outside_workspace` | `True` (your own machine) | **`False`** — per-request workspace, non-overridable |
-| `bypass` interaction mode | available | **rejected** — tools must never escape the request workspace |
+| `bypass` interaction mode | default (CLI runs on your own machine) | **rejected** — tools must never escape the request workspace |
 | Authentication | — | optional `FLOWJET_API_KEY` (Bearer, constant-time comparison) |
 
 Notes:

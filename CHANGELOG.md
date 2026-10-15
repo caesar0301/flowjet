@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.11] — 2026-10-15
+
+### Changed
+
+- **Bypass mode is now the CLI default.** The `-b`/`--bypass` flag was removed;
+  bypass mode (skip all security enforcement) is now the default interaction
+  mode for the CLI surface, since `fj` runs on the user's own machine. Use
+  `-a`/`--ask` for read-only Q&A with guardrails. The `bypass_mode` parameter
+  was removed from `build_agent`; the server surface still rejects `bypass`
+  via `require_mode()`. Docs (`server.md`, `upgrade.md`, `modes.py`) updated.
+
 ## [2.0.10] — 2026-10-14
 
 ### Changed
