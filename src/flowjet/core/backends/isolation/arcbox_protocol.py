@@ -1,4 +1,4 @@
-"""JSON-lines protocol for boxlite container workers (Phase 3).
+"""JSON-lines protocol for arcbox sandbox workers.
 
 Serializes :class:`IsolatedRunRequest` to JSON for transmission over the
 worker's stdin, and deserializes JSON event frames from the worker's stdout
@@ -15,7 +15,7 @@ Wire format (one JSON object per line)::
 
 No external dependencies — only stdlib ``json`` and the flowjet event
 dataclasses.  This module is imported both by the pool (host side) and by
-the worker script (container side).
+the worker script (sandbox side).
 """
 
 from __future__ import annotations

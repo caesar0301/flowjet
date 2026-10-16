@@ -1,9 +1,9 @@
 """Tests for the backend-isolation compatibility guard.
 
-Boxlite isolation (Phase 3) requires the ``soothe`` host runtime.
+ArcBox isolation requires the ``soothe`` host runtime.
 When ``FLOWJET_SERVER_BACKEND=nano`` is combined with
-``FLOWJET_ISOLATION_MODE=boxlite``, the server must fail fast at startup
-rather than silently degrading to a nano adapter inside the container.
+``FLOWJET_ISOLATION_MODE=arcbox``, the server must fail fast at startup
+rather than silently degrading to a nano adapter inside the sandbox.
 """
 
 from __future__ import annotations
@@ -15,12 +15,12 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
-def test_validate_soothe_with_boxlite_is_okay():
-    """soothe + boxlite is the valid combination — no error."""
+def test_validate_soothe_with_arcbox_is_okay():
+    """soothe + arcbox is the valid combination — no error."""
     from flowjet.server.config import Settings
 
     s = Settings()
-    s.isolation_mode = "boxlite"
+    s.isolation_mode = "arcbox"
     # Should not raise.
     s.validate_isolation_compatibility("soothe")
 
@@ -43,13 +43,13 @@ def test_validate_nano_with_thread_pool_is_okay():
     s.validate_isolation_compatibility("nano")  # should not raise
 
 
-def test_validate_nano_with_boxlite_raises():
-    """nano + boxlite is a misconfiguration — must raise."""
+def test_validate_nano_with_arcbox_raises():
+    """nano + arcbox is a misconfiguration — must raise."""
     from flowjet.server.config import Settings
 
     s = Settings()
-    s.isolation_mode = "boxlite"
-    with pytest.raises(ValueError, match="boxlite.*requires.*soothe"):
+    s.isolation_mode = "arcbox"
+    with pytest.raises(ValueError, match="arcbox.*requires.*soothe"):
         s.validate_isolation_compatibility("nano")
 
 
@@ -58,7 +58,7 @@ def test_validate_error_message_mentions_both_fixes():
     from flowjet.server.config import Settings
 
     s = Settings()
-    s.isolation_mode = "boxlite"
+    s.isolation_mode = "arcbox"
     with pytest.raises(ValueError) as exc_info:
         s.validate_isolation_compatibility("nano")
     msg = str(exc_info.value)
@@ -71,33 +71,33 @@ def test_validate_error_message_mentions_both_fixes():
 # ---------------------------------------------------------------------------
 
 
-def test_build_backend_raises_on_nano_with_boxlite(monkeypatch, tmp_path):
-    """build_backend() raises ValueError when nano + boxlite are combined."""
+def test_build_backend_raises_on_nano_with_arcbox(monkeypatch, tmp_path):
+    """build_backend() raises ValueError when nano + arcbox are combined."""
     from flowjet.server.config import Settings
     from flowjet.server.http.app import build_backend
 
     monkeypatch.setenv("FLOWJET_SERVER_BACKEND", "nano")
-    monkeypatch.setenv("FLOWJET_ISOLATION_MODE", "boxlite")
+    monkeypatch.setenv("FLOWJET_ISOLATION_MODE", "arcbox")
     monkeypatch.setenv("FLOWJET_HOME", str(tmp_path))
 
     s = Settings()
-    with pytest.raises(ValueError, match="boxlite.*requires.*soothe"):
+    with pytest.raises(ValueError, match="arcbox.*requires.*soothe"):
         build_backend(s)
 
 
-def test_build_backend_succeeds_on_soothe_with_boxlite(monkeypatch, tmp_path):
-    """build_backend() works when soothe + boxlite are configured.
+def test_build_backend_succeeds_on_soothe_with_arcbox(monkeypatch, tmp_path):
+    """build_backend() works when soothe + arcbox are configured.
 
     Pool construction is lightweight (SDK import is deferred to pool.start()),
-    so this succeeds even without the boxlite SDK installed.
+    so this succeeds even without the arcbox SDK installed.
     """
     from flowjet.server.config import Settings
     from flowjet.server.http.app import build_backend
 
     monkeypatch.setenv("FLOWJET_SERVER_BACKEND", "soothe")
-    monkeypatch.setenv("FLOWJET_ISOLATION_MODE", "boxlite")
+    monkeypatch.setenv("FLOWJET_ISOLATION_MODE", "arcbox")
     monkeypatch.setenv("FLOWJET_HOME", str(tmp_path))
-    monkeypatch.setenv("FLOWJET_BOXLITE_IMAGE", "flowjet-server:test")
+    monkeypatch.setenv("FLOWJET_ARCBOX_IMAGE", "flowjet-server:test")
 
     s = Settings()
     backend = build_backend(s)  # should not raise

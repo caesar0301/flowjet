@@ -1,8 +1,8 @@
 """RuntimeBackend that admits, resolves workspaces, and submits to an isolation pool.
 
 Phase 1–2 use :class:`~flowjet.core.backends.isolation.pool.ThreadPool`.
-Phase 3 adds :class:`~flowjet.core.backends.isolation.boxlite_vm_pool.BoxLiteVMIsolationPool`
-for microVM-per-workspace session isolation via the external boxlite runtime.
+Phase 3 adds :class:`~flowjet.core.backends.isolation.arcbox_vm_pool.ArcBoxVMIsolationPool`
+for microVM-per-workspace session isolation via the external arcbox runtime.
 Both implement the
 :class:`~flowjet.core.backends.isolation.isolation_pool.IsolationPool` protocol.
 """
@@ -30,8 +30,8 @@ class IsolatingRuntimeBackend:
     :class:`SyncAwareWorkspaceResolver` to enable fsspec workspace sync.
     The default is the local-only :class:`WorkspaceResolver` (Phase 1).
 
-    The isolation pool is injectable (Phase 3): callers can pass a
-    :class:`~flowjet.core.backends.isolation.boxlite_vm_pool.BoxLiteVMIsolationPool`
+    The isolation pool is injectable (Phase 3): callers can pass an
+    :class:`~flowjet.core.backends.isolation.arcbox_vm_pool.ArcBoxVMIsolationPool`
     to enable microVM-per-workspace session isolation.  The default is the
     in-process :class:`ThreadPool` (Phase 1/2).
     """

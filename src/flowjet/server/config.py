@@ -67,48 +67,45 @@ class Settings(BaseSettings):
     # (backend / frontend) a plain-file view of every workspace. Empty = disabled.
     workspace_content_source: str | None = None
 
-    # Isolation mode — "thread_pool" (default, in-process) or "boxlite"
-    # (microVM-per-workspace sandboxing via the external boxlite runtime,
-    # https://github.com/boxlite-ai/boxlite). "boxlite" requires the boxlite
-    # SDK (bundled in the `server` extra) and host virtualization (/dev/kvm on
-    # Linux, Hypervisor.framework on macOS).
-    isolation_mode: Literal["thread_pool", "boxlite"] = "thread_pool"
-    # OCI image for the in-VM worker container (typically the flowjet-server
+    # Isolation mode — "thread_pool" (default, in-process) or "arcbox"
+    # (microVM-per-workspace sandboxing via the external arcbox runtime,
+    # https://github.com/arcboxlabs/arcbox). "arcbox" requires the arcbox
+    # SDK (pip install arcbox) and the arcbox daemon running on the host
+    # (Hypervisor.framework on macOS, KVM on Linux).
+    isolation_mode: Literal["thread_pool", "arcbox"] = "thread_pool"
+    # Docker image reference for the in-VM worker (typically the flowjet-server
     # image — it carries the flowjet venv + worker entrypoint).
-    boxlite_image: str | None = None
+    arcbox_image: str | None = None
     # Max concurrently live worker VMs (across all workspaces). VMs are
     # spawned on demand per workspace; there is no baseline pre-warm.
-    boxlite_max_pool: int = 4
-    # Per-VM resource limits. Note: guest memory is mmap'd by the server
-    # process, so it counts against the server container's cgroup memory
-    # limit — size the container as concurrent VMs × (mem + ~512MiB) + server.
-    boxlite_vcpus: int = 2
-    boxlite_mem_mib: int = 2048
-    # Fixed in-VM mount point for the (single) workspace volume.
-    boxlite_workspace_container_path: str = "/workspace"
-    # Egress allow-list for worker VMs (comma-separated hosts). Empty = SDK
-    # default network (no egress filtering).
-    boxlite_allow_net: str | None = None
+    arcbox_max_pool: int = 4
+    # Per-VM resource limits.
+    arcbox_vcpus: int = 2
+    arcbox_mem_mib: int = 2048
+    # Fixed in-sandbox path for the workspace directory.
+    arcbox_workspace_container_path: str = "/workspace"
+    # Network access for worker VMs. "true" = full network (SDK default);
+    # "false" = fully isolated (no egress).
+    arcbox_network: bool = True
     # Comma-separated env var names copied from the server environment into
     # the worker VM (e.g. FLOWJET_NANO_CONFIG, FLOWJET_SERVER_BACKEND).
-    boxlite_pass_env: str | None = None
-    # Private OCI registry credentials for pulling the worker image
-    # (env-only; never in config files).
-    boxlite_registry_host: str | None = None
-    boxlite_registry_username: str | None = None
-    boxlite_registry_password: str | None = None
-    # Boxlite runtime data dir (image cache, VM state). None = SDK default.
-    # On the triarch deploy this should live on the flowjet-home volume
-    # (e.g. /flowjet/data/boxlite).
-    boxlite_home_dir: str | None = None
-    boxlite_idle_timeout: float = 300.0
-    boxlite_max_requests: int = 100
+    arcbox_pass_env: str | None = None
+    # ArcBox daemon connection: explicit API URL for remote daemon proxy
+    # (e.g. http://host.docker.internal:9847). None = local Unix socket.
+    # Can also be set via ARCBOX_API_URL env var.
+    arcbox_api_url: str | None = None
+    # Bearer credential for the daemon proxy (env: ARCBOX_API_KEY).
+    arcbox_api_key: str | None = None
+    # Per-unary-RPC deadline in seconds (None = no bound).
+    arcbox_request_timeout: float | None = None
+    arcbox_idle_timeout: float = 300.0
+    arcbox_max_requests: int = 100
 
     def validate_isolation_compatibility(self, backend: str) -> None:
         """Raise ``ValueError`` if isolation settings are incompatible with the backend.
 
-        Boxlite isolation (Phase 3) requires the ``soothe`` host runtime.
-        The boxlite worker builds a :class:`SootheAgentAdapter` internally,
+        ArcBox isolation requires the ``soothe`` host runtime.
+        The arcbox worker builds a :class:`SootheAgentAdapter` internally,
         which depends on soothe's host middleware (goal/step guard, decompose,
         ask-user).  When ``FLOWJET_SERVER_BACKEND=nano`` is set, the worker
         would fall back to :class:`NanoAgentAdapter` — which lacks the host
@@ -118,10 +115,10 @@ class Settings(BaseSettings):
         This guard makes the misconfiguration a loud, early failure at server
         startup rather than a runtime surprise.
         """
-        if self.isolation_mode == "boxlite" and backend != "soothe":
+        if self.isolation_mode == "arcbox" and backend != "soothe":
             raise ValueError(
-                "isolation_mode='boxlite' requires FLOWJET_SERVER_BACKEND=soothe, "
-                f"but got backend='{backend}'. Boxlite isolation only works with "
+                "isolation_mode='arcbox' requires FLOWJET_SERVER_BACKEND=soothe, "
+                f"but got backend='{backend}'. ArcBox isolation only works with "
                 "the soothe host runtime, not soothe-nano. Either set "
                 "FLOWJET_SERVER_BACKEND=soothe (or unset it for the default) "
                 "or set FLOWJET_ISOLATION_MODE=thread_pool to use in-process "
@@ -145,30 +142,26 @@ class Settings(BaseSettings):
             ready_timeout_seconds=self.ready_timeout,
         )
 
-    def boxlite_pool_settings(self):
-        """Build BoxLiteVMSettings from server config."""
-        from flowjet.core.backends.isolation.boxlite_vm_pool import BoxLiteVMSettings
+    def arcbox_pool_settings(self):
+        """Build ArcBoxVMSettings from server config."""
+        from flowjet.core.backends.isolation.arcbox_vm_pool import ArcBoxVMSettings
 
-        allow_net: list[str] | None = None
-        if self.boxlite_allow_net and self.boxlite_allow_net.strip():
-            allow_net = [h.strip() for h in self.boxlite_allow_net.split(",") if h.strip()]
         pass_env: list[str] | None = None
-        if self.boxlite_pass_env and self.boxlite_pass_env.strip():
-            pass_env = [e.strip() for e in self.boxlite_pass_env.split(",") if e.strip()]
+        if self.arcbox_pass_env and self.arcbox_pass_env.strip():
+            pass_env = [e.strip() for e in self.arcbox_pass_env.split(",") if e.strip()]
 
-        return BoxLiteVMSettings(
-            image=self.boxlite_image,
-            max_size=max(1, self.boxlite_max_pool),
-            vcpus=self.boxlite_vcpus,
-            mem_mib=self.boxlite_mem_mib,
-            workspace_container_path=self.boxlite_workspace_container_path,
-            allow_net=allow_net,
+        return ArcBoxVMSettings(
+            image=self.arcbox_image,
+            max_size=max(1, self.arcbox_max_pool),
+            vcpus=self.arcbox_vcpus,
+            mem_mib=self.arcbox_mem_mib,
+            workspace_container_path=self.arcbox_workspace_container_path,
+            network=self.arcbox_network,
             pass_env=pass_env,
-            registry_host=self.boxlite_registry_host,
-            registry_username=self.boxlite_registry_username,
-            registry_password=self.boxlite_registry_password,
-            home_dir=self.boxlite_home_dir,
-            idle_timeout_seconds=self.boxlite_idle_timeout,
-            max_requests_per_worker=self.boxlite_max_requests,
+            api_url=self.arcbox_api_url,
+            api_key=self.arcbox_api_key,
+            request_timeout=self.arcbox_request_timeout,
+            idle_timeout_seconds=self.arcbox_idle_timeout,
+            max_requests_per_worker=self.arcbox_max_requests,
             ready_timeout_seconds=self.ready_timeout,
         )

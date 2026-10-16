@@ -35,15 +35,15 @@ def build_backend(settings: Settings) -> RuntimeBackend:
     enabling fsspec workspace sync (Phase 2). Otherwise the default
     local-only :class:`WorkspaceResolver` is used (Phase 1).
 
-    When ``settings.isolation_mode`` is ``"boxlite"``, a
-    :class:`BoxLiteVMIsolationPool` is constructed and injected — enabling
-    microVM-per-workspace sandboxing via the external boxlite runtime.
+    When ``settings.isolation_mode`` is ``"arcbox"``, an
+    :class:`ArcBoxVMIsolationPool` is constructed and injected — enabling
+    microVM-per-workspace sandboxing via the external arcbox runtime.
     Otherwise the default in-process :class:`ThreadPool` is used.
     """
     backend = resolve_backend(Surface.SERVER)
-    # Guard: boxlite isolation requires the soothe host runtime.  Catch the
+    # Guard: arcbox isolation requires the soothe host runtime.  Catch the
     # misconfiguration early (at server startup) rather than letting the
-    # worker silently fall back to a nano adapter inside the container.
+    # worker silently fall back to a nano adapter inside the sandbox.
     settings.validate_isolation_compatibility(backend.value)
     workspace_resolver = _build_workspace_resolver(settings)
     isolation_pool = _build_isolation_pool(settings)
@@ -89,29 +89,29 @@ def _build_workspace_resolver(settings: Settings) -> Any:
 def _build_isolation_pool(settings: Settings) -> Any:
     """Construct the isolation pool based on isolation mode settings.
 
-    When ``isolation_mode`` is ``"boxlite"``, build a
-    :class:`BoxLiteVMIsolationPool` for microVM-per-workspace sandboxing via
-    the external boxlite runtime. Otherwise return ``None`` so the backend
+    When ``isolation_mode`` is ``"arcbox"``, build an
+    :class:`ArcBoxVMIsolationPool` for microVM-per-workspace sandboxing via
+    the external arcbox runtime. Otherwise return ``None`` so the backend
     uses the default in-process :class:`ThreadPool`.
 
     Construction is lightweight (no SDK import — that happens lazily at
     ``pool.start()``) so building the backend never hard-fails in
     environments without the SDK.
     """
-    if settings.isolation_mode != "boxlite":
+    if settings.isolation_mode != "arcbox":
         return None
-    from flowjet.core.backends.isolation.boxlite_vm_pool import (
-        BoxLiteVMIsolationPool,
+    from flowjet.core.backends.isolation.arcbox_vm_pool import (
+        ArcBoxVMIsolationPool,
     )
 
-    return BoxLiteVMIsolationPool(
-        adapter_factory=_boxlite_adapter_factory(settings),
-        settings=settings.boxlite_pool_settings(),
+    return ArcBoxVMIsolationPool(
+        adapter_factory=_arcbox_adapter_factory(settings),
+        settings=settings.arcbox_pool_settings(),
     )
 
 
-def _boxlite_adapter_factory(settings: Settings) -> Any:
-    """Return a zero-arg adapter factory for the boxlite pool.
+def _arcbox_adapter_factory(settings: Settings) -> Any:
+    """Return a zero-arg adapter factory for the arcbox pool.
 
     The adapter is constructed inside the worker VM, not in the server
     process. This factory is a placeholder — the pool passes it to satisfy
