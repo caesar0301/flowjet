@@ -1,4 +1,4 @@
-"""BoxLite worker entrypoint — runs inside a container (or local subprocess).
+"""ArcBox worker entrypoint — runs inside a sandbox microVM.
 
 Reads JSON-lines requests on stdin, executes them via the
 :class:`~flowjet.core.backends.isolation.adapter.AgentAdapter`, and emits
@@ -18,7 +18,7 @@ Protocol (one JSON object per line)::
 
 Run directly::
 
-    python -m flowjet.core.backends.isolation.boxlite_worker
+    python -m flowjet.core.backends.isolation.arcbox_worker
 
 The worker builds its adapter lazily on the first request (same pattern as
 the thread-pool worker).  It reuses the adapter across requests until a
@@ -33,7 +33,7 @@ import os
 import sys
 from typing import Any
 
-from flowjet.core.backends.isolation.boxlite_protocol import (
+from flowjet.core.backends.isolation.arcbox_protocol import (
     decode_request,
     encode_event,
     make_control,
@@ -43,7 +43,7 @@ from flowjet.core.events import RuntimeEvent
 
 logger = logging.getLogger(__name__)
 
-_WORKER_ID = os.environ.get("BOXLITE_WORKER_ID", "bl-unknown")
+_WORKER_ID = os.environ.get("ARCBOX_WORKER_ID", "ab-unknown")
 _REAL_STDOUT: Any = sys.stdout  # set by _force_logs_to_stderr; used by _write_frame
 
 
@@ -156,13 +156,13 @@ def _build_adapter() -> Any:
     constructed via the bridge's factory function.  The specific bridge
     (soothe or nano) is determined by the server backend setting.
 
-    When the ``BOXLITE_ADAPTER`` env var is set to ``fake``, the worker
+    When the ``ARCBOX_ADAPTER`` env var is set to ``fake``, the worker
     uses :class:`FakeAgentAdapter` — useful for testing without an LLM.
 
     If the real adapter fails to build (e.g. no config file), the worker
     falls back to :class:`FakeAgentAdapter` so the request still completes.
     """
-    adapter_mode = os.environ.get("BOXLITE_ADAPTER", "")
+    adapter_mode = os.environ.get("ARCBOX_ADAPTER", "")
     if adapter_mode == "fake":
         from flowjet.core.backends.isolation.adapter import FakeAgentAdapter
 
@@ -173,7 +173,7 @@ def _build_adapter() -> Any:
 
     backend = resolve_backend(Surface.SERVER)
     # Workers run as subprocesses of the server, so they inherit its env —
-    # including FLOWJET_NANO_CONFIG. Pass it through: with sync/boxlite deploys
+    # including FLOWJET_NANO_CONFIG. Pass it through: with sync/arcbox deploys
     # the config mounts may live outside FLOWJET_HOME, and load_config(None)
     # would otherwise fall back to an empty zero-config agent (missing keys).
     config_path = os.environ.get("FLOWJET_NANO_CONFIG") or None
@@ -217,7 +217,7 @@ def _force_logs_to_stderr() -> None:
 
     stderr_handler = logging.StreamHandler(sys.stderr)
     stderr_handler.setFormatter(
-        logging.Formatter("%(asctime)s [boxlite:%(worker_id)s] %(name)s %(levelname)s %(message)s")
+        logging.Formatter("%(asctime)s [arcbox:%(worker_id)s] %(name)s %(levelname)s %(message)s")
     )
 
     root = logging.getLogger()
@@ -234,10 +234,10 @@ def _force_logs_to_stderr() -> None:
 
 
 def main() -> None:
-    """Entry point for ``python -m flowjet.core.backends.isolation.boxlite_worker``."""
+    """Entry point for ``python -m flowjet.core.backends.isolation.arcbox_worker``."""
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s [boxlite:%(worker_id)s] %(message)s",
+        format="%(asctime)s [arcbox:%(worker_id)s] %(message)s",
         stream=sys.stderr,
     )
     # Attach worker_id to log records.

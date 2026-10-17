@@ -1,6 +1,6 @@
-"""IsolationPool protocol — the common surface for ThreadPool and BoxLitePool.
+"""IsolationPool protocol — the common surface for ThreadPool and ArcBoxPool.
 
-Phase 3 introduces :class:`BoxLiteVMIsolationPool` as an alternative to
+Phase 3 introduces :class:`ArcBoxVMIsolationPool` as an alternative to
 :class:`~flowjet.core.backends.isolation.pool.ThreadPool`.  Both implement
 this protocol so :class:`IsolatingRuntimeBackend` can accept either.
 """

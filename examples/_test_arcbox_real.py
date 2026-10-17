@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Test boxlite isolation with the REAL soothe adapter (not fake).
+"""Test arcbox isolation with the REAL soothe adapter (not fake).
 
 Sends a real LLM query through the ACP WebSocket endpoint and verifies:
-1. The boxlite worker spawns and processes the request
+1. The arcbox worker spawns and processes the request
 2. Real LLM response is received (not an echo)
 3. Pool metrics show the worker was used
 """
@@ -86,7 +86,7 @@ async def main() -> int:
     section("ACP initialize")
     init_resp = await conn.initialize(
         protocol_version=1,
-        client_info={"name": "boxlite-real-test", "version": "1.0"},
+        client_info={"name": "arcbox-real-test", "version": "1.0"},
     )
     print(f"  protocolVersion: {init_resp.protocol_version}")
     print(f"  agentInfo: {init_resp.agent_info.name} v{init_resp.agent_info.version}")
@@ -147,7 +147,7 @@ async def main() -> int:
         and pool.get("total_workers", 0) > 0
     )
     if pool_ok:
-        print("  OK: Boxlite pool processed request successfully")
+        print("  OK: ArcBox pool processed request successfully")
     else:
         print("  WARNING: Pool metrics look wrong!")
 
@@ -160,7 +160,7 @@ async def main() -> int:
     section("SUMMARY")
     success = is_real and pool_ok
     print(f"  Real LLM response:     {'YES' if is_real else 'NO'}")
-    print(f"  Boxlite worker spawned: {pool.get('total_workers', 0) > 0}")
+    print(f"  ArcBox worker spawned: {pool.get('total_workers', 0) > 0}")
     print(f"  Requests completed:    {pool.get('requests_completed', 0)}")
     print(f"  Dead workers:          {pool.get('dead_workers', 0)}")
     print(f"  Overall:               {'PASS' if success else 'FAIL'}")

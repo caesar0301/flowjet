@@ -53,7 +53,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     set -eux; \
     uv venv /app/.venv; \
     # The image only needs the HTTP service; --extra server pulls fastapi,
-    # uvicorn, agent-client-protocol, the S3 sync backend, and the boxlite
+    # uvicorn, agent-client-protocol, the S3 sync backend, and the arcbox
     # microVM SDK (session isolation).
     UV_PROJECT_ENVIRONMENT=/app/.venv uv sync --no-dev --frozen --no-editable --extra server; \
     if [ "$LOCAL_WHEELS" = "1" ]; then \

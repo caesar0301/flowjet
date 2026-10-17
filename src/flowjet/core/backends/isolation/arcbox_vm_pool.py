@@ -1,60 +1,61 @@
-"""BoxLite VM isolation pool — microVM-per-workspace sandboxing.
+"""ArcBox VM isolation pool — microVM-per-workspace sandboxing.
 
-Backed by the external **boxlite** runtime (https://github.com/boxlite-ai/boxlite,
-``pip install boxlite``): each worker runs inside a hardware-isolated microVM
-(KVM on Linux / Hypervisor.framework on macOS) that boots its own guest kernel
-and runs an OCI container inside it. This replaces the former in-repo
-Docker/local-subprocess pool migrated from ``soothe_daemon``.
+Backed by the external **arcbox** runtime (https://github.com/arcboxlabs/arcbox,
+``pip install arcbox``): each worker runs inside a hardware-isolated microVM
+(Virtualization.framework / Hypervisor.framework on macOS, KVM on Linux) that
+boots its own guest kernel.
 
 Isolation model (control plane / sandbox plane):
 
-- The flowjet server (control plane) embeds the boxlite runtime library and
-  stays a regular container/process. Only the sandbox plane — the worker
-  executing agent tool calls — runs inside the microVM.
-- **Per-workspace mounts**: a Box's volumes are fixed at ``runtime.create()``
-  time, so each worker VM bind-mounts exactly ONE workspace (its own) at
-  ``workspace_container_path``. Other workspaces are not visible inside the
-  VM — not merely hidden by tool policy, but absent from the filesystem the
-  guest kernel can see.
-- Egress can be restricted to an allow-list via ``NetworkSpec(allow_net=...)``.
+- The flowjet server (control plane) connects to the arcbox daemon via a
+  Unix socket (or a remote URL via ``ARCBOX_API_URL``) and stays a regular
+  container/process. Only the sandbox plane — the worker executing agent
+  tool calls — runs inside the microVM.
+- **Per-workspace file transfer**: ArcBox sandboxes do not support host
+  bind mounts.  Instead, the workspace directory is copied into the sandbox
+  via the SDK's ``files`` API before the worker starts, and the worker sees
+  its workspace at ``workspace_container_path`` (default ``/workspace``).
+- Egress can be restricted via ``network=False`` (fully isolated) or left
+  enabled (``network=True``, the SDK default).
 
 The worker itself is unchanged: ``python -m
-flowjet.core.backends.isolation.boxlite_worker`` speaking the JSON-lines
-protocol over stdin/stdout. The pool bridges the boxlite ``Execution``
+flowjet.core.backends.isolation.arcbox_worker`` speaking the JSON-lines
+protocol over stdin/stdout. The pool bridges the arcbox ``AsyncCommandHandle``
 streaming API to that protocol:
 
-- ``Execution.stdout()`` may be iterated exactly ONCE, so a single reader task
-  pumps it line-by-line into an ``asyncio.Queue`` shared by the ready
-  handshake, the submit loop and drain paths.
-- Worker logs already go to stderr (the worker forces this), so
-  ``Execution.stderr()`` is drained and discarded to avoid backpressure.
+- ``AsyncCommandHandle.output`` is an async iterator yielding ``OutputChunk``
+  objects (``channel`` + ``data``); a single reader task pumps stdout chunks
+  line-by-line into an ``asyncio.Queue`` shared by the ready handshake, the
+  submit loop and drain paths.
+- Worker logs go to stderr; the output stream's stderr chunks are drained
+  and discarded to avoid backpressure.
 
 Requirements (fail loudly at ``start()`` when unmet):
 
-- ``pip install flowjet[server]`` (the boxlite SDK ships in the `server` extra)
-- Host virtualization: ``/dev/kvm`` accessible on Linux, Hypervisor.framework
-  on macOS. When the server itself runs containerized, ``/dev/kvm`` must be
-  passed through to the container.
-- The runtime is embedded in the server process, so VM guest memory is
-  mmap'd by the server process and counts against the server container's
-  cgroup memory limit — size it as
-  ``concurrent VMs × (mem_mib + ~512 MiB overhead) + server baseline``.
+- ``pip install arcbox`` (the arcbox SDK)
+- The arcbox daemon running on the host (``arcbox-daemon`` or
+  ``arcbox serve``), reachable via the Unix socket at
+  ``~/.arcbox/run/arcbox.sock`` or via ``ARCBOX_API_URL``.
+- Host virtualization: Hypervisor.framework on macOS, ``/dev/kvm`` on Linux.
+- When the server runs containerized, set ``ARCBOX_API_URL`` to point at the
+  host daemon (e.g. via a TCP proxy bridging the Unix socket).  No
+  ``/dev/kvm`` passthrough is needed — the daemon manages VMs on the host.
 """
 
 from __future__ import annotations
 
 import asyncio
-import inspect
 import logging
 import os
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from flowjet.core.backends.isolation.adapter import AdapterFactory
-from flowjet.core.backends.isolation.boxlite_protocol import (
+from flowjet.core.backends.isolation.arcbox_protocol import (
     decode_event,
     encode_request,
     parse_frame,
@@ -65,50 +66,53 @@ from flowjet.core.events import RuntimeEvent
 
 logger = logging.getLogger(__name__)
 
-_WORKER_MODULE = "flowjet.core.backends.isolation.boxlite_worker"
+_WORKER_MODULE = "flowjet.core.backends.isolation.arcbox_worker"
 _CONTROL_TYPES = frozenset({"done", "error", "cancelled", "ready"})
 
 
-def _import_boxlite() -> Any:
-    """Lazily import the external boxlite SDK with an actionable error."""
+def _import_arcbox() -> Any:
+    """Lazily import the external arcbox SDK with an actionable error."""
     try:
-        import boxlite  # type: ignore[import-not-found]
+        import arcbox  # type: ignore[import-not-found]
     except ImportError as exc:  # pragma: no cover - environment-dependent
         raise RuntimeError(
-            "isolation_mode='boxlite' requires the external boxlite runtime "
-            "(pip install 'flowjet[server]' or pip install boxlite) and host "
-            "virtualization (/dev/kvm on Linux; Hypervisor.framework on macOS). "
-            "Alternatively set FLOWJET_ISOLATION_MODE=thread_pool."
+            "isolation_mode='arcbox' requires the external arcbox SDK "
+            "(pip install arcbox) and the arcbox daemon running on the host "
+            "(arcbox serve). The daemon manages microVMs via Hypervisor.framework "
+            "(macOS) or KVM (Linux). Alternatively set "
+            "FLOWJET_ISOLATION_MODE=thread_pool."
         ) from exc
-    return boxlite
+    return arcbox
 
 
 @dataclass(slots=True)
-class BoxLiteVMSettings:
-    """Configuration for :class:`BoxLiteVMIsolationPool`."""
+class ArcBoxVMSettings:
+    """Configuration for :class:`ArcBoxVMIsolationPool`."""
 
-    # OCI image for the in-VM worker container. Usually the flowjet-server
-    # image itself (it contains the flowjet venv + worker entrypoint).
+    # Docker image reference for the in-VM worker (e.g. the flowjet-server
+    # image — it carries the flowjet venv + worker entrypoint).
     image: str | None = None
     # Maximum concurrently live worker VMs (across all workspaces).
     max_size: int = 4
     # Per-VM resource limits.
     vcpus: int = 2
     mem_mib: int = 2048
-    # Fixed in-container mount point for the (single) workspace volume.
+    # Fixed in-sandbox mount point for the workspace directory.
     workspace_container_path: str = "/workspace"
-    # Egress allow-list. None = SDK default network (no filtering); a list
-    # enables the sandbox egress policy (e.g. LLM API domains only).
-    allow_net: list[str] | None = None
+    # Network access for worker VMs. True = full network (SDK default);
+    # False = fully isolated (no egress).
+    network: bool = True
     # Env var names copied from the server environment into the worker VM
     # (the in-VM agent runtime needs them, e.g. FLOWJET_NANO_CONFIG).
     pass_env: list[str] | None = None
-    # Private OCI registry credentials (env-only; never in config files).
-    registry_host: str | None = None
-    registry_username: str | None = None
-    registry_password: str | None = None
-    # Boxlite runtime data dir; None = SDK default (~/.boxlite).
-    home_dir: str | None = None
+    # ArcBox daemon connection: explicit API URL for remote daemon proxy
+    # (e.g. http://host.docker.internal:9847). None = local Unix socket
+    # (~/.arcbox/run/arcbox.sock). Can also be set via ARCBOX_API_URL env.
+    api_url: str | None = None
+    # Bearer credential for the daemon proxy (env: ARCBOX_API_KEY).
+    api_key: str | None = None
+    # Per-unary-RPC deadline in seconds (None = no bound).
+    request_timeout: float | None = None
     idle_timeout_seconds: float = 300.0
     max_requests_per_worker: int = 100
     request_timeout_seconds: float = 0.0
@@ -133,9 +137,8 @@ class _VMWorkerState:
 
     worker_id: str
     workspace: str
-    box: Any
-    execution: Any
-    stdin: Any
+    sandbox: Any
+    command_handle: Any
     # Line queue fed by the single stdout pump task; None = EOF (VM died /
     # worker exited). Shared by ready handshake / submit loop / drain.
     lines: asyncio.Queue[str | None]
@@ -171,28 +174,28 @@ class _VMWorkerState:
         self.request_id = None
 
 
-class BoxLiteVMIsolationPool:
-    """MicroVM-per-workspace isolation pool backed by boxlite-ai/boxlite.
+class ArcBoxVMIsolationPool:
+    """MicroVM-per-workspace isolation pool backed by arcboxlabs/arcbox.
 
     Implements the same ``IsolationPool`` protocol as ``ThreadPool``:
     ``start``, ``submit``, ``cancel_run``, ``cancel_session``, ``metrics``,
     ``shutdown``, ``await_session_dispatchable``.
 
-    Per-workspace semantics: a Box's volume set is fixed at creation, so a
-    worker VM can only ever serve the single workspace it was spawned for.
+    Per-workspace semantics: each worker VM gets its own workspace files
+    copied in via the SDK's ``files`` API before the worker process starts.
     Workers are spawned on demand (no baseline pre-warm — no workspace to
-    mount until a request arrives) and recycled after
+    transfer until a request arrives) and recycled after
     ``max_requests_per_worker`` turns or ``idle_timeout_seconds``.
     """
 
     def __init__(
         self,
         adapter_factory: AdapterFactory,
-        settings: BoxLiteVMSettings | None = None,
+        settings: ArcBoxVMSettings | None = None,
     ) -> None:
         self._factory = adapter_factory
-        self._settings = settings or BoxLiteVMSettings()
-        self._runtime: Any | None = None
+        self._settings = settings or ArcBoxVMSettings()
+        self._client: Any | None = None
         self._workers: dict[str, _VMWorkerState] = {}
         self._session_to_worker: dict[str, str] = {}
         self._run_to_worker: dict[str, str] = {}
@@ -208,7 +211,7 @@ class BoxLiteVMIsolationPool:
         self._events_dropped = 0
 
     @property
-    def settings(self) -> BoxLiteVMSettings:
+    def settings(self) -> ArcBoxVMSettings:
         return self._settings
 
     def metrics(self) -> PoolMetrics:
@@ -242,54 +245,45 @@ class BoxLiteVMIsolationPool:
                 return
             if not self._settings.image:
                 raise RuntimeError(
-                    "isolation_mode='boxlite' requires FLOWJET_BOXLITE_IMAGE "
-                    "(the OCI image for the in-VM worker, typically the "
+                    "isolation_mode='arcbox' requires FLOWJET_ARCBOX_IMAGE "
+                    "(the Docker image for the in-VM worker, typically the "
                     "flowjet-server image)."
                 )
             self._main_loop = asyncio.get_running_loop()
             self._worker_available = asyncio.Condition()
-            # SDK import + runtime construction happen here (not in __init__)
+            # SDK import + client construction happen here (not in __init__)
             # so that constructing the pool never hard-fails in environments
             # without the SDK (tests, thread_pool deployments).
-            self._runtime = self._ensure_runtime()
+            self._client = self._ensure_client()
             self._running = True
             self._health_task = asyncio.create_task(
-                self._health_watchdog(), name="boxlite-vm-pool-health"
+                self._health_watchdog(), name="arcbox-vm-pool-health"
             )
             logger.info(
-                "BoxLite VM pool started: image=%s vcpus=%d mem_mib=%d max_size=%d allow_net=%s",
+                "ArcBox VM pool started: image=%s vcpus=%d mem_mib=%d max_size=%d network=%s",
                 self._settings.image,
                 self._settings.vcpus,
                 self._settings.mem_mib,
                 self._settings.max_size,
-                self._settings.allow_net,
+                self._settings.network,
             )
 
-    def _ensure_runtime(self) -> Any:
-        """Build the embedded boxlite runtime (idempotent)."""
-        if self._runtime is not None:
-            return self._runtime
-        boxlite = _import_boxlite()
-        registry_kwargs: dict[str, Any] = {}
-        if self._settings.registry_host:
-            registry_kwargs = {
-                "host": self._settings.registry_host,
-            }
-            if self._settings.registry_username:
-                registry_kwargs["username"] = self._settings.registry_username
-            if self._settings.registry_password:
-                registry_kwargs["password"] = self._settings.registry_password
-        if registry_kwargs or self._settings.home_dir:
-            options_kwargs: dict[str, Any] = {}
-            if self._settings.home_dir:
-                options_kwargs["home_dir"] = self._settings.home_dir
-            if registry_kwargs:
-                options_kwargs["image_registries"] = [boxlite.ImageRegistry(**registry_kwargs)]
-            runtime = boxlite.Boxlite(boxlite.Options(**options_kwargs))
-        else:
-            runtime = boxlite.Boxlite.default()
-        self._runtime = runtime
-        return runtime
+    def _ensure_client(self) -> Any:
+        """Build the arcbox AsyncArcBox client (idempotent)."""
+        if self._client is not None:
+            return self._client
+        arcbox = _import_arcbox()
+        connection_kwargs: dict[str, Any] = {}
+        if self._settings.api_url:
+            connection_kwargs["api_url"] = self._settings.api_url
+        if self._settings.api_key:
+            connection_kwargs["api_key"] = self._settings.api_key
+        if self._settings.request_timeout is not None:
+            connection_kwargs["request_timeout"] = self._settings.request_timeout
+        connection = arcbox.Connection(**connection_kwargs) if connection_kwargs else None
+        client = arcbox.AsyncArcBox(connection)
+        self._client = client
+        return client
 
     async def shutdown(self, timeout: float = 10.0) -> None:
         async with self._lock:
@@ -309,64 +303,103 @@ class BoxLiteVMIsolationPool:
         for w in workers:
             await self._terminate_worker(w)
         self._session_waiters.clear()
+        # Close the SDK client.
+        if self._client is not None:
+            try:
+                await self._client.aclose()
+            except Exception:  # noqa: BLE001
+                pass
+            self._client = None
 
     # ------------------------------------------------------------------
     # Worker VM spawn / teardown
     # ------------------------------------------------------------------
 
-    def _box_options(self, workspace: str) -> Any:
-        """Build BoxOptions: single workspace volume + env + network policy."""
-        boxlite = _import_boxlite()
-        settings = self._settings
-        assert settings.image is not None  # guaranteed by start()
-
-        env_pairs: list[tuple[str, str]] = []
-        for name in settings.pass_env_list:
+    def _build_env(self) -> dict[str, str]:
+        """Build the env dict for the sandbox from pass_env settings."""
+        env: dict[str, str] = {}
+        for name in self._settings.pass_env_list:
             value = os.environ.get(name)
             if value is not None:
-                env_pairs.append((name, value))
+                env[name] = value
+        # Always set the worker ID so logs are identifiable.
+        env["ARCBOX_WORKER_ID"] = f"ab_{self._next_index}"
+        return env
 
-        network: Any = None
-        if settings.allow_net is not None:
-            network = boxlite.NetworkSpec(mode="enabled", allow_net=list(settings.allow_net))
+    async def _transfer_workspace(
+        self, sandbox: Any, workspace: str
+    ) -> None:
+        """Copy the workspace directory tree into the sandbox via the files API.
 
-        return boxlite.BoxOptions(
-            image=settings.image,
-            cpus=settings.vcpus,
-            memory_mib=settings.mem_mib,
-            working_dir="/",
-            volumes=[(workspace, settings.workspace_container_path, False)],
-            env=env_pairs,
-            network=network,
-        )
+        ArcBox sandboxes don't support host bind mounts, so workspace files
+        are transferred one file at a time via ``sandbox.files.write_bytes()``.
+        Directories are created with ``sandbox.files.mkdir()``.
+        """
+        workspace_path = Path(workspace)
+        if not workspace_path.exists():
+            logger.warning(
+                "Workspace %s does not exist; skipping transfer", workspace
+            )
+            return
+
+        container_root = PurePosixPath(self._settings.workspace_container_path)
+        # Ensure the root workspace dir exists.
+        await sandbox.files.mkdir(container_root)
+
+        for item in workspace_path.rglob("*"):
+            if item.is_dir():
+                rel = item.relative_to(workspace_path)
+                target = container_root / PurePosixPath(*rel.parts)
+                await sandbox.files.mkdir(target)
+            elif item.is_file():
+                rel = item.relative_to(workspace_path)
+                target = container_root / PurePosixPath(*rel.parts)
+                data = item.read_bytes()
+                await sandbox.files.write_bytes(target, data)
 
     async def _spawn_worker_unlocked(self, *, workspace: str) -> _VMWorkerState:
         """Create a worker VM for exactly one workspace and await 'ready'."""
-        runtime = self._ensure_runtime()
-        worker_id = f"bl_{self._next_index}_{uuid.uuid4().hex[:6]}"
+        client = self._ensure_client()
+        worker_id = f"ab_{self._next_index}_{uuid.uuid4().hex[:6]}"
         self._next_index += 1
 
-        box = await runtime.create(self._box_options(workspace), name=f"flowjet-{worker_id}")
-        execution = await box.exec("python", args=["-m", _WORKER_MODULE], tty=False)
-        stdin = execution.stdin()
+        env = self._build_env()
+
+        sandbox = await client.create(
+            self._settings.image,
+            vcpus=self._settings.vcpus,
+            memory_mib=self._settings.mem_mib,
+            env=env,
+            network=self._settings.network,
+            wait_until_ready=True,
+        )
+
+        # Transfer workspace files into the sandbox (no bind mounts in arcbox).
+        await self._transfer_workspace(sandbox, workspace)
+
+        # Start the worker process in the background with stdin open.
+        command_handle = await sandbox.commands.run(
+            ["python", "-m", _WORKER_MODULE],
+            background=True,
+            stdin=True,
+        )
 
         state = _VMWorkerState(
             worker_id=worker_id,
             workspace=workspace,
-            box=box,
-            execution=execution,
-            stdin=stdin,
+            sandbox=sandbox,
+            command_handle=command_handle,
             lines=asyncio.Queue(),
         )
         self._workers[worker_id] = state
 
-        # Single stdout pump (Execution.stdout() is single-iteration) and a
-        # stderr drain so the VM's pipes never backpressure the worker.
+        # Single stdout pump and a stderr drain so the sandbox's pipes never
+        # backpressure the worker.
         state.pump_task = asyncio.create_task(
-            self._pump_stdout(state), name=f"boxlite-vm-pump-{worker_id}"
+            self._pump_stdout(state), name=f"arcbox-vm-pump-{worker_id}"
         )
         state.stderr_task = asyncio.create_task(
-            self._drain_stderr(state), name=f"boxlite-vm-stderr-{worker_id}"
+            self._drain_stderr(state), name=f"arcbox-vm-stderr-{worker_id}"
         )
 
         try:
@@ -376,23 +409,22 @@ class BoxLiteVMIsolationPool:
         except TimeoutError:
             self._ready_timeouts += 1
             await self._terminate_worker(state)
-            logger.error("BoxLite VM worker %s failed to become ready", worker_id)
+            logger.error("ArcBox VM worker %s failed to become ready", worker_id)
             raise RuntimeError(f"Worker {worker_id} failed to become ready")
 
         if line is None or parse_frame(line).get("type") != "ready":
             await self._terminate_worker(state)
             raise RuntimeError(f"Worker {worker_id} sent an unexpected first frame: {line!r}")
         state.status = "idle"
-        logger.info("BoxLite VM worker %s ready (workspace=%s)", worker_id, workspace)
+        logger.info("ArcBox VM worker %s ready (workspace=%s)", worker_id, workspace)
         return state
 
     async def _pump_stdout(self, state: _VMWorkerState) -> None:
-        """Consume Execution.stdout() once; emit complete lines into the queue."""
+        """Consume command_handle.output once; emit complete lines into the queue."""
         try:
-            stdout = state.execution.stdout()
             buf = b""
-            async for chunk in stdout:
-                data = chunk if isinstance(chunk, (bytes, bytearray)) else str(chunk).encode()
+            async for chunk in state.command_handle.output:
+                data = chunk.data if isinstance(chunk.data, (bytes, bytearray)) else str(chunk.data).encode()
                 buf += bytes(data)
                 while b"\n" in buf:
                     raw, buf = buf.split(b"\n", 1)
@@ -402,38 +434,42 @@ class BoxLiteVMIsolationPool:
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
-            logger.exception("BoxLite VM worker %s stdout pump failed", state.worker_id)
+            logger.exception("ArcBox VM worker %s stdout pump failed", state.worker_id)
         finally:
             # EOF sentinel unblocks every reader.
             await state.lines.put(None)
 
     async def _drain_stderr(self, state: _VMWorkerState) -> None:
-        """Discard worker stderr (logs) to avoid pipe backpressure."""
-        try:
-            stderr = state.execution.stderr()
-            if stderr is None:
-                return
-            async for _chunk in stderr:
-                pass
-        except asyncio.CancelledError:
-            raise
-        except Exception:  # noqa: BLE001
-            # Some SDK shapes may not expose stderr(); draining is best-effort.
-            logger.debug("BoxLite VM worker %s stderr drain ended", state.worker_id)
+        """Discard worker stderr (logs) to avoid pipe backpressure.
 
-    def _send_line(self, state: _VMWorkerState, line: str) -> Any:
-        """Write one frame to the worker's stdin (await if the SDK is async)."""
-        result = state.stdin.send_input((line + "\n").encode("utf-8"))
-        return result
+        The arcbox output stream interleaves stdout and stderr chunks; the
+        stdout pump already consumes the full output iterator. This task is
+        a no-op placeholder for future per-channel separation if needed.
+        """
+        # In arcbox, the output stream yields OutputChunk objects with a
+        # ``channel`` field ("stdout" / "stderr" / "pty"). The _pump_stdout
+        # task consumes the full stream; stderr chunks are simply ignored
+        # there since we only extract complete lines regardless of channel.
+        # This method exists for API parity with the pool protocol.
+        # and for future per-channel routing.
+        return
+
+    async def _send_line(self, state: _VMWorkerState, line: str) -> None:
+        """Write one frame to the worker's stdin."""
+        await state.command_handle.write_stdin((line + "\n").encode("utf-8"))
 
     async def _terminate_worker(self, state: _VMWorkerState) -> None:
         for task in (state.pump_task, state.stderr_task):
             if task is not None and not task.done():
                 task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                    pass
         try:
-            await state.box.stop()
+            await state.sandbox.kill()
         except Exception:  # noqa: BLE001
-            logger.exception("BoxLite VM worker %s stop failed", state.worker_id)
+            logger.exception("ArcBox VM worker %s kill failed", state.worker_id)
         state.mark_dead()
 
     # ------------------------------------------------------------------
@@ -460,8 +496,8 @@ class BoxLiteVMIsolationPool:
             self._worker_available.notify_all()
 
     def _worker_serves(self, w: _VMWorkerState, workspace: str | None) -> bool:
-        """A VM can only serve the workspace it was spawned for (volume fixed
-        at create time)."""
+        """A VM can only serve the workspace it was spawned for (files
+        transferred at create time)."""
         return workspace is not None and w.workspace == workspace
 
     def _live_count(self) -> int:
@@ -510,14 +546,12 @@ class BoxLiteVMIsolationPool:
 
         worker = await self._acquire_idle_worker(req.session, req.run_id, request_id, workspace)
 
-        # The VM sees its workspace at the fixed container mount point, not at
+        # The VM sees its workspace at the fixed container path, not at
         # the server-side path — rewrite the frame before sending.
         from dataclasses import replace as _dc_replace
 
         send_req = _dc_replace(req, workspace=self._settings.workspace_container_path)
-        result = self._send_line(worker, encode_request(send_req))
-        if inspect.isawaitable(result):
-            await result
+        await self._send_line(worker, encode_request(send_req))
 
         terminal_received = False
         try:
@@ -575,7 +609,7 @@ class BoxLiteVMIsolationPool:
         except TimeoutError:
             self._ready_timeouts += 1
             logger.error(
-                "BoxLite VM pool: ready timeout worker=%s; recycling",
+                "ArcBox VM pool: ready timeout worker=%s; recycling",
                 worker.worker_id,
             )
 
@@ -608,7 +642,7 @@ class BoxLiteVMIsolationPool:
             try:
                 await self._reap_dead_and_idle()
             except Exception:  # noqa: BLE001
-                logger.exception("BoxLite VM pool health watchdog error")
+                logger.exception("ArcBox VM pool health watchdog error")
             await asyncio.sleep(1.0)
 
     async def _reap_dead_and_idle(self) -> None:
@@ -632,7 +666,7 @@ class BoxLiteVMIsolationPool:
         for w in stale:
             if w.status != "dead":
                 logger.info(
-                    "BoxLite VM worker %s idle-recycled (workspace=%s)",
+                    "ArcBox VM worker %s idle-recycled (workspace=%s)",
                     w.worker_id,
                     w.workspace,
                 )
@@ -649,10 +683,8 @@ class BoxLiteVMIsolationPool:
             return False
         worker._cancel_event.set()
         try:
-            result = worker.execution.kill(9)
-            if inspect.isawaitable(result):
-                # Fire-and-forget: the submit loop observes EOF / error frames.
-                asyncio.ensure_future(result)
+            # Kill the command (SIGKILL the process group).
+            asyncio.ensure_future(worker.command_handle.kill("SIGKILL"))
         except Exception:  # noqa: BLE001
             logger.exception("cancel_run: kill failed for %s", worker_id)
         return True
