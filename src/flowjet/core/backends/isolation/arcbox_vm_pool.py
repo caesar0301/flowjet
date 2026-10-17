@@ -326,9 +326,7 @@ class ArcBoxVMIsolationPool:
         env["ARCBOX_WORKER_ID"] = f"ab_{self._next_index}"
         return env
 
-    async def _transfer_workspace(
-        self, sandbox: Any, workspace: str
-    ) -> None:
+    async def _transfer_workspace(self, sandbox: Any, workspace: str) -> None:
         """Copy the workspace directory tree into the sandbox via the files API.
 
         ArcBox sandboxes don't support host bind mounts, so workspace files
@@ -337,9 +335,7 @@ class ArcBoxVMIsolationPool:
         """
         workspace_path = Path(workspace)
         if not workspace_path.exists():
-            logger.warning(
-                "Workspace %s does not exist; skipping transfer", workspace
-            )
+            logger.warning("Workspace %s does not exist; skipping transfer", workspace)
             return
 
         container_root = PurePosixPath(self._settings.workspace_container_path)
@@ -378,10 +374,17 @@ class ArcBoxVMIsolationPool:
         await self._transfer_workspace(sandbox, workspace)
 
         # Start the worker process in the background with stdin open.
+        # The sandbox image may not have the venv on PATH (the arcbox
+        # daemon does not inherit the image's ENV), so prefer the venv
+        # python when present and fall back to the bare name.
+        # Pass env vars explicitly to commands.run() — the arcbox daemon
+        # does not forward sandbox-level env vars to exec'd processes.
+        python_bin = os.environ.get("FLOWJET_ARCBOX_PYTHON", "python")
         command_handle = await sandbox.commands.run(
-            ["python", "-m", _WORKER_MODULE],
+            [python_bin, "-m", _WORKER_MODULE],
             background=True,
             stdin=True,
+            env=env,
         )
 
         state = _VMWorkerState(
@@ -424,7 +427,18 @@ class ArcBoxVMIsolationPool:
         try:
             buf = b""
             async for chunk in state.command_handle.output:
-                data = chunk.data if isinstance(chunk.data, (bytes, bytearray)) else str(chunk.data).encode()
+                # The arcbox output stream interleaves stdout and stderr
+                # chunks. Only process stdout-channel chunks — stderr chunks
+                # contain worker logs that would corrupt the JSON-lines
+                # protocol channel if fed to parse_frame.
+                channel = getattr(chunk, "channel", "stdout")
+                if channel != "stdout":
+                    continue
+                data = (
+                    chunk.data
+                    if isinstance(chunk.data, (bytes, bytearray))
+                    else str(chunk.data).encode()
+                )
                 buf += bytes(data)
                 while b"\n" in buf:
                     raw, buf = buf.split(b"\n", 1)

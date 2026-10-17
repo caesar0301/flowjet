@@ -214,6 +214,11 @@ def _force_logs_to_stderr() -> None:
     global _REAL_STDOUT
 
     import logging
+    import os
+
+    # Save the original stdout file descriptor before redirecting.
+    # The protocol frames are written via _REAL_STDOUT (which wraps this fd).
+    _REAL_STDOUT = os.fdopen(os.dup(sys.stdout.fileno()), "w", encoding="utf-8")
 
     stderr_handler = logging.StreamHandler(sys.stderr)
     stderr_handler.setFormatter(
@@ -228,8 +233,13 @@ def _force_logs_to_stderr() -> None:
         if isinstance(logger, logging.Logger) and logger.handlers:
             logger.handlers = [stderr_handler]
 
-    # Swap stdout → stderr so third-party print() calls don't corrupt frames.
-    _REAL_STDOUT = sys.stdout
+    # Redirect fd 1 (stdout) to fd 2 (stderr) at the OS level so that
+    # third-party libraries writing directly to fd 1 (bypassing Python's
+    # sys.stdout) don't corrupt the JSON-lines protocol channel. The
+    # _REAL_STDOUT reference above still holds the original fd.
+    os.dup2(sys.stderr.fileno(), 1)
+
+    # Also swap sys.stdout → sys.stderr for Python-level print() calls.
     sys.stdout = sys.stderr
 
 

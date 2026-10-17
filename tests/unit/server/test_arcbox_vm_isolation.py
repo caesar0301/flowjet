@@ -161,13 +161,19 @@ class FakeArcBox:
         sandbox = FakeSandbox(str(uuid.uuid4()))
         # Pre-seed the "ready" frame the worker would emit.
         await sandbox.commands.handle.output_queue.put(b'{"type": "ready"}\n')
-        self.created.append((sandbox, template, {
-            "vcpus": vcpus,
-            "memory_mib": memory_mib,
-            "env": env,
-            "network": network,
-            "cmd": cmd,
-        }))
+        self.created.append(
+            (
+                sandbox,
+                template,
+                {
+                    "vcpus": vcpus,
+                    "memory_mib": memory_mib,
+                    "env": env,
+                    "network": network,
+                    "cmd": cmd,
+                },
+            )
+        )
         return sandbox
 
     async def aclose(self) -> None:
@@ -260,7 +266,11 @@ async def test_spawn_awaits_ready_and_tracks_workspace(fake_client):
     assert state.workspace == "/flowjet/data/workspaces/wsA"
     # Worker sandbox runs the unchanged worker entrypoint.
     sandbox = fake_client.created[-1][0]
-    assert sandbox.commands.run_calls[0][0] == ["python", "-m", "flowjet.core.backends.isolation.arcbox_worker"]
+    assert sandbox.commands.run_calls[0][0] == [
+        "python",
+        "-m",
+        "flowjet.core.backends.isolation.arcbox_worker",
+    ]
     await pool.shutdown()
 
 
